@@ -1,0 +1,63 @@
+name: provision-infra
+description: provision the infrastructure stores the state of the clusters in this repo
+inputs:
+  subscriptionId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of azure subscription
+  loginId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of user, service principal, or app to login with
+  loginSecret:
+    string:
+      constraints: { minLength: 1 }
+      description: secret of user, service principal, or app to login with
+      isSecret: true
+  location:
+    string:
+      constraints: { minLength: 1 }
+      description: location of the resource group
+      default: westus
+  name:
+    string:
+      constraints: { minLength: 1 }
+      description: name of the resource group
+  loginTenantId:
+    string:
+      constraints: { minLength: 1 }
+      description: tenant id of user, service principal, or app to login with
+      default: " "
+  loginType:
+    string:
+      constraints: { enum: [user, sp]}
+      description: type of login; 'user' (default) or 'sp' for service principal
+      default: sp
+run:
+  serial:
+    - op:
+        ref: github.com/opspec-pkgs/azure.group.create#2.1.0
+        inputs:
+          loginId:
+          loginSecret:
+          name:
+          subscriptionId:
+          location:
+          loginTenantId:
+          loginType:
+    - op:
+        ref: github.com/opspec-pkgs/azure.storage.account.create#2.1.0
+        inputs:
+          loginId:
+          loginSecret:
+          name: ${name}clusterData
+          resourceGroup:
+          subscriptionId:
+          location:
+          # params w/ default
+#          customDomain:
+#          kind:
+#          loginTenantId:
+#          loginType:
+#          sku:
+#          tags:

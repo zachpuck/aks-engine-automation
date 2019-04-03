@@ -1,0 +1,28 @@
+name: build/build-opctl
+description: build the opctl container
+inputs:
+  srcDir:
+    dir:
+      default: .
+      description: directory containing the projects source code
+  dockerfile:
+    file:
+      default: /Dockerfile
+run:
+  serial:
+    - op:
+        pkg: { ref: github.com/opspec-pkgs/git.repo.resolve-commit#1.0.2 }
+        inputs: { dotGitDir: $(srcDir/.git) }
+        outputs: { commit: }
+    - op:
+        pkg: { ref: github.com/opspec-pkgs/docker.image.build#2.1.0 }
+        inputs:
+          dockerfile:
+          context: $(srcDir)
+          imageName: 'zachpuck/aks-engine-opctl:$(commit)'
+        outputs: { imageTar }
+    - op:
+        pkg: { ref: github.com/opspec-pkgs/docker.image.push#2.1.0 }
+        inputs:
+          imageTar:
+          imageName: 'zachpuck/aks-engine-opctl:$(commit)'

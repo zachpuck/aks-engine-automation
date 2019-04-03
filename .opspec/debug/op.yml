@@ -1,18 +1,50 @@
 name: debug
-description: debug repo
+description: debug project
 inputs:
   srcDir:
     dir:
       default: .
+      description: directory containing the projects source code
+  kindClusterName:
+    string:
+      description: name of local kind cluster used for debugging
+      default: debug
+  clusterConfig:
+    file:
+      description: config file used to setup kind cluster
+      default: /setup-config.yaml
+  dockerSocket:
+    socket:
+      description: access to docker on node (typically '/var/run/docker.sock')
 run:
   serial:
+    - op:
+        ref: github.com/opspec-pkgs/kind.create.cluster#1.0.0
+        inputs:
+          dockerSocket:
+          name: $(kindClusterName)
+          clusterConfig: $(clusterConfig)
+          outputDir: $(srcDir)
+        outputs:
+          kubeConfig:
     - container:
-        image: { ref: 'golang:1.11-alpine3.8' }
+        name: debug
+        image: { ref: 'zachpuck/ops:latest' }
+        dirs:
+          /go/src/github.com/zachpuck/aks-engine-automation: $(srcDir)
         cmd:
           - sh
           - -ce
           - |
-            echo "debug not implemented"
-        dirs:
-          /go/src/github.com/zachpuck/aks-engine-automation: $(srcDir)
+            apk add make
+            mkdir /root/.kube
+            cat ./kind-config-$kindClusterName.yaml | sed s/localhost/host.docker.internal/ > /root/.kube/config
+
+            make install
+
+            kubectl apply -f config/samples/azure_v1beta1_akscluster.yaml
+
+            make run
+        envVars:
+          kindClusterName:
         workDir: /go/src/github.com/zachpuck/aks-engine-automation

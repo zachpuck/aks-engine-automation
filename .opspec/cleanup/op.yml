@@ -1,0 +1,33 @@
+name: cleanup
+description: cleanup kind cluster
+inputs:
+  srcDir:
+    dir:
+      default: .
+      description: directory containing the projects source code
+  kindClusterName:
+    string:
+      description: name of local kind cluster used for debugging
+      default: debug
+  dockerSocket:
+    socket:
+      description: access to docker on node (typically '/var/run/docker.sock')
+run:
+  container:
+    image: { ref: 'quay.io/samsung_cnct/kind:0.1.4' }
+    dirs:
+      /go/src/github.com/zachpuck/aks-engine-automation: $(srcDir)
+    sockets:
+      /var/run/docker.sock: dockerSocket
+    cmd:
+      - sh
+      - -ce
+      - |
+        docker stop ${kindClusterName}-control-plane && docker rm ${kindClusterName}-control-plane
+
+        if [ -f ./kind-config-${kindClusterName}.yaml ]; then
+          rm ./kind-config-${kindClusterName}.yaml
+        fi
+    envVars:
+      kindClusterName:
+    workDir: /go/src/github.com/zachpuck/aks-engine-automation

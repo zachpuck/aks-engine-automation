@@ -1,0 +1,126 @@
+name: create-cluster
+description: create a new cluster using aks-engine
+inputs:
+  # inputs for logging into azure in the correct region
+  subscriptionId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of azure subscription
+  loginId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of user, service principal, or app to login with
+  loginSecret:
+    string:
+      constraints: { minLength: 1 }
+      description: secret of user, service principal, or app to login with
+      isSecret: true
+  location:
+    string:
+      constraints: { minLength: 1 }
+      description: location of the resources
+      default: westus
+  loginTenantId:
+    string:
+      constraints: { minLength: 1 }
+      description: tenant id of user, service principal, or app to login with
+      default: " "
+  loginType:
+    string:
+      constraints: { enum: [user, sp]}
+      description: type of login; 'user' (default) or 'sp' for service principal
+      default: sp
+  # cluster specific inputs
+  clusterName:
+    string:
+      constraints: { minLength: 1 }
+      description: the name of the cluster
+  config:
+    object:
+      description: the configuration object used to generate the templates
+  # aks-engine application specific
+  storageAccountName:
+    string:
+      constraints: { minLength: 1 }
+      description: name of storage account used to save ARM resourece Templates
+  storageAccountResourceGroupName:
+    string:
+      constraints: { minLength: 1 }
+      description: resource group where storage account exists
+run:
+  serial:
+    # Creating cluster resource group
+    - op:
+        ref: github.com/opspec-pkgs/azure.group.create#2.1.0
+        inputs:
+          loginId:
+          loginSecret:
+          name: $(clusterName)-group
+          subscriptionId:
+          location:
+          loginTenantId:
+          loginType:
+    # Get storage account key
+    - op:
+        ref: github.com/opspec-pkgs/azure.storage.account.key.get#2.1.0
+        inputs:
+          loginId:
+          loginSecret:
+          resourceGroup: $(storageAccountResourceGroupName)
+          storageAccount: $(storageAccountName)
+          subscriptionId:
+          loginTenantId:
+          loginType:
+        outputs:
+          value:
+    # Generating ARM resource templates
+    - op:
+        ref: generate-templates
+        inputs:
+          config:
+          clusterName:
+          storageAccountName: $(storageAccountName)
+          storageAccountKey: $(value)
+        outputs:
+          templates:
+    # Get templates from azure storage
+    - container:
+        image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+        cmd:
+          - sh
+          - -ce
+          - |
+            echo "downloading cluster arm templates"
+            az storage blob download-batch \
+              --destination . \
+              --source $(clusterName) \
+              --account-key $(value) \
+              --account-name $(storageAccountName) > /dev/null
+
+            cat ./azuredeploy.json > /template.json
+            cat ./azuredeploy.parameters.json > /parameters.json
+        envVars:
+          clusterName:
+          storageAccountName: $(storageAccountName)
+          storageAccountKey: $(value)
+        files:
+          /template.json: $(template)
+          /parameters.json: $(parameters)
+    # Generate uuid to append to deployment for history (azure deployment logs)
+    - op:
+        ref: github.com/opspec-pkgs/uuid.v4.generate#1.1.0
+        outputs:
+          uuid:
+    # Deploy ARM resource templates to azure
+    - op:
+        ref: github.com/opspec-pkgs/azure.group.deployment.create#1.1.0
+        inputs:
+          loginTenantId:
+          subscriptionId:
+          loginType:
+          loginId:
+          loginSecret:
+          name: $(clusterName)-$(uuid)
+          parameters: $(parameters)
+          resourceGroup: $(clusterName)-group
+          template: $(template)

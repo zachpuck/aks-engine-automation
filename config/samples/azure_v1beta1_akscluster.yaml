@@ -1,0 +1,22 @@
+apiVersion: azure.cnct.io/v1beta1
+kind: AksCluster
+metadata:
+  labels:
+    controller-tools.k8s.io: "1.0"
+  name: akscluster-sample
+spec:
+  credentials:
+    tenantId:
+    subscriptionId:
+    loginId:
+    loginSecret:
+  location: westus
+  kubernetesVersion: "1.13"
+  masterProfile:
+    count: 1
+    dnsPrefix: akscluster-sample
+    vmSize: Standard_A1
+  agentPoolProfiles:
+    - name: agentpool1
+      count: 1
+      vmSize: Standard_A1

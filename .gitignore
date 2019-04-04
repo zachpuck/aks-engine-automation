@@ -12,7 +12,9 @@
 *.out
 
 .idea/
-
+bin/
 
 #opctl
 args.yml
+
+kind-config-debug.yaml

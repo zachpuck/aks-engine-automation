@@ -1,0 +1,37 @@
+name: generate-templates
+description: |
+  Generate Templates is part of AKS-Engine. This op takes in a configuration file that must match the specifications
+  that aks-engine (https://github.com/Azure/aks-engine/blob/master/docs/topics/clusterdefinitions.md) requires.
+inputs:
+  config:
+    object:
+      description: the kubernetes configuration object used to generate the templates
+  clusterName:
+    string:
+      constraints: { minLength: 1 }
+      description: the name of the cluster we are generating files for
+  storageAccountName:
+    string:
+      constraints: { minLength: 1 }
+  storageAccountKey:
+    string:
+      constraints: { minLength: 1 }
+      isSecret: true
+outputs:
+  templates:
+    dir:
+      description: cluster templates
+run:
+  serial:
+    - container:
+        image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+        cmd: [ /cmd.sh ]
+        files:
+          /cmd.sh:
+          /cluster.config: $(config)
+        envVars:
+          clusterName:
+          storageAccountName:
+          storageAccountKey:
+        dirs:
+          /_output: $(templates)

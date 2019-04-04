@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aks-engine-automation.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "aks-engine-automation.name" . }}
+    helm.sh/chart: {{ include "aks-engine-automation.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "aks-engine-automation.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "aks-engine-automation.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-serviceaccount
+      containers:
+        - name: operator
+          image: "{{ .Values.images.operator.repository }}:{{ .Values.images.operator.tag }}"
+          imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: AKS_ENGINE_STORAGE_ACCOUNT_NAME
+              value: "{{ .Values.storageAccount.name }}"
+            - name: AKS_ENGINE_STORAGE_ACCOUNT_GROUP
+              value: "{{ .Values.storageAccount.group }}"
+            - name: OPERATIONS_PKG_PATH
+              value:  "{{ .Values.operationsPath }}"
+        - name: opctl
+          image: "{{ .Values.images.opctl.repository }}:{{ .Values.images.opctl.tag }}"
+          imagePullPolicy: {{ .Values.images.opctl.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 42224
+              protocol: TCP
+          securityContext:
+            privileged: true

@@ -1,0 +1,55 @@
+name: deploy
+description: deploy to a kubernetes cluster
+inputs:
+  chartDir:
+    dir:
+      description: directory of helm chart
+      default: /helm/aks-engine-operator
+  kubeConfig:
+    file:
+      description: kubeconfig for deployment cluster
+  releaseName:
+    string:
+      description: name of helm release
+      default: aks-engine-operator
+  valuesFile:
+    file:
+      description: helm values file
+      default: /helm/aks-engine-operator/values.yaml
+  namespace:
+    string:
+      description: namespace to deploy into
+      default: aks
+  storageAccountName:
+    string:
+      constraints: { minLength: 1 }
+      description: name of azure storage account used by aks-engine-operator
+  storageAccountGroup:
+    string:
+      constraints: { minLength: 1 }
+      description: name of azure resource group where storage account resides
+run:
+  serial:
+    - container:
+        image: { ref: 'zachpuck/ops:latest' }
+        workDir: /chart
+        dirs:
+          /chart: $(chartDir)
+        files:
+          /kubeConfig.yaml: $(kubeConfig)
+        cmd:
+          - sh
+          - -ce
+          - |
+            export KUBECONFIG=/kubeConfig.yaml
+            kubectl get nodes
+#            mkdir /root/.kube
+#            cat ./kubeConfig.yaml | sed s/localhost/host.docker.internal/ > /root/.kube/config
+#            helm init --wait
+#
+#            helm upgrade $(releaseName) \
+#                /helm/aks-engine-operator \
+#                --namespace aks \
+#                --set storageAccount.name=$(storageAccountName) \
+#                --set storageAccount.name=$(storageAccountGroup) \
+#                --install --wait --timeout=600

@@ -1,5 +1,5 @@
-name: build/build-opctl
-description: build the opctl container
+name: build/build-operator
+description: build the kubernetes operator container
 inputs:
   srcDir:
     dir:
@@ -7,7 +7,8 @@ inputs:
       description: directory containing the projects source code
   dockerfile:
     file:
-      default: /Dockerfile
+      default: ./Dockerfile
+      description: default is root of project
   DOCKERHUB_USERNAME:
     string:
       constraints: { minLength: 1 }
@@ -29,12 +30,12 @@ run:
         inputs:
           dockerfile:
           context: $(srcDir)
-          imageName: 'zachpuck/aks-engine-opctl:$(commit)'
+          imageName: 'zachpuck/aks-engine-operator:$(commit)'
         outputs: { imageTar }
     - op:
         pkg: { ref: github.com/opspec-pkgs/docker.image.push#2.1.0 }
         inputs:
           imageTar:
-          imageName: 'zachpuck/aks-engine-opctl:$(commit)'
+          imageName: 'zachpuck/aks-engine-operator:$(commit)'
           username: $(DOCKERHUB_USERNAME)
           password: $(DOCKERHUB_PASSWORD)

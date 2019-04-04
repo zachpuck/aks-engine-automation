@@ -1,0 +1,28 @@
+# Default values for aks-engine-automation.
+
+replicaCount: 1
+
+images:
+  operator:
+    repository: zachpuck/aks-engine-operator
+    tag: latest
+    pullPolicy: Always
+  opctl:
+    repository: zachpuck/aks-engine-opctl
+    tag: latest
+    pullPolicy: Always
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Azure storage account used to store ARM resource templates for all clusters.
+storageAccount:
+  name: ""
+  group: ""
+
+# path in images.operator to source code of operations
+operationsPath: /src/operations

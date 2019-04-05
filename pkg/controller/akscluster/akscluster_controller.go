@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"regexp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -37,10 +38,16 @@ import (
 
 var log = logf.Log.WithName("controller")
 
-/**
-* USER ACTION REQUIRED: This is a scaffold file intended for the user to modify with their own Controller
-* business logic.  Delete these comments after modifying this file.*
- */
+const (
+	ClusterPhaseNone              = ""
+	ClusterPhasePending           = "Pending"
+	ClusterPhaseWaitingForCluster = "Waiting"
+	ClusterPhaseUpgrading         = "Upgrading"
+	ClusterPhaseDeleting          = "Deleting"
+	ClusterPhaseReady             = "Ready"
+	ClusterPhaseFailed            = "Failed"
+	ClusterPhaseError             = "Error"
+)
 
 // Add creates a new AksCluster Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
@@ -99,8 +106,8 @@ type ReconcileAksCluster struct {
 // +kubebuilder:rbac:groups=azure.cnct.io,resources=aksclusters/status,verbs=get;update;patch
 func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	// Fetch the AksCluster instance
-	instance := &azurev1beta1.AksCluster{}
-	err := r.Get(context.TODO(), request.NamespacedName, instance)
+	clusterInstance := &azurev1beta1.AksCluster{}
+	err := r.Get(context.TODO(), request.NamespacedName, clusterInstance)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Object not found, return.  Created objects are automatically garbage collected.
@@ -111,8 +118,9 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, err
 	}
 
-	fmt.Println("status: ", instance.Status.Phase)
-	if instance.Status.Phase == "" {
+	// Create cluster
+	if clusterInstance.Status.Phase == "" {
+		log.Info("creating", "Cluster:", clusterInstance.Name)
 
 		// create a new opctl
 		opctl := opctlutil.New("localhost")
@@ -123,7 +131,7 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			return reconcile.Result{}, err
 		}
 		// save private key as secret
-		err = k8sutil.CreateSSHSecret(r.Client, instance.Name, instance.Namespace, sshPrivateKey)
+		err = k8sutil.CreateSSHSecret(r.Client, clusterInstance.Name, clusterInstance.Namespace, sshPrivateKey)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -134,19 +142,19 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			Properties: opctlutil.Properties{
 				OrchestratorProfile: opctlutil.OrchestratorProfile{
 					OrchestratorType:    "Kubernetes",
-					OrchestratorRelease: instance.Spec.KubernetesVersion,
+					OrchestratorRelease: clusterInstance.Spec.KubernetesVersion,
 				},
 				MasterProfile: opctlutil.MasterProfile{
-					Count:     instance.Spec.MasterProfile.Count,
-					DNSPrefix: instance.Spec.MasterProfile.DnsPrefix,
-					VMSize:    instance.Spec.MasterProfile.VmSize,
+					Count:     clusterInstance.Spec.MasterProfile.Count,
+					DNSPrefix: clusterInstance.Spec.MasterProfile.DnsPrefix,
+					VMSize:    clusterInstance.Spec.MasterProfile.VmSize,
 				},
 				// TODO: add for loop for multiple node pools
 				AgentPoolProfiles: []opctlutil.AgentPoolProfiles{
 					{
-						Name:   instance.Spec.AgentPoolProfiles[0].Name,
-						Count:  instance.Spec.AgentPoolProfiles[0].Count,
-						VMSize: instance.Spec.AgentPoolProfiles[0].VmSize,
+						Name:   clusterInstance.Spec.AgentPoolProfiles[0].Name,
+						Count:  clusterInstance.Spec.AgentPoolProfiles[0].Count,
+						VMSize: clusterInstance.Spec.AgentPoolProfiles[0].VmSize,
 					},
 				},
 				LinuxProfile: opctlutil.LinuxProfile{
@@ -163,22 +171,22 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 				// az ad sp create-for-rbac --role="Contributor" \
 				// --scopes="/subscriptions/<subscriptionId>/resourceGroups/<clusterResourceGroup>"
 				ServicePrincipalProfile: opctlutil.ServicePrincipalProfile{
-					ClientID: instance.Spec.Credentials.LoginId,
-					Secret:   instance.Spec.Credentials.LoginSecret,
+					ClientID: clusterInstance.Spec.Credentials.LoginId,
+					Secret:   clusterInstance.Spec.Credentials.LoginSecret,
 				},
 			},
 		}
 
 		// Starts the create-cluster operation
-		opId, err := opctl.CreateCluster(opctlutil.CreateClusterInput{
+		createClusterResult, err := opctl.CreateCluster(opctlutil.CreateClusterInput{
 			Credentials: azurev1beta1.AzureCredentials{
-				TenantId:       instance.Spec.Credentials.TenantId,
-				SubscriptionId: instance.Spec.Credentials.SubscriptionId,
-				LoginId:        instance.Spec.Credentials.LoginId,
-				LoginSecret:    instance.Spec.Credentials.LoginSecret,
+				TenantId:       clusterInstance.Spec.Credentials.TenantId,
+				SubscriptionId: clusterInstance.Spec.Credentials.SubscriptionId,
+				LoginId:        clusterInstance.Spec.Credentials.LoginId,
+				LoginSecret:    clusterInstance.Spec.Credentials.LoginSecret,
 			},
-			Location:    instance.Spec.Location,
-			ClusterName: instance.Name,
+			Location:    clusterInstance.Spec.Location,
+			ClusterName: clusterInstance.Name,
 			Config:      config,
 		})
 		if err != nil {
@@ -186,12 +194,57 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		}
 
 		// TODO: track opId result
-		fmt.Println("opId: ", opId)
+		matchPattern := regexp.MustCompile("^[a-zA-Z0-9]*$")
+		if !matchPattern.MatchString(createClusterResult.OpId) {
 
-		// TODO: update status to Creating and current k8s version
-		instance.Status.Phase = "Creating"
-		instance.Status.K8sVersion = azurev1beta1.ClusterKubernetesVersion(instance.Spec.KubernetesVersion)
+			statusUpdate := ClusterInstanceStatusUpdates{
+				Phase: ClusterPhaseError,
+			}
+			err = r.updateClusterInstance(clusterInstance, statusUpdate)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to update cluster status: %v", err)
+			}
+
+			return reconcile.Result{}, fmt.Errorf(
+				"failed to start operation for cluster -->%v<-- with message: %v",
+				clusterInstance.Name, createClusterResult.OpId,
+			)
+		}
+
+		createStatusUpdates := ClusterInstanceStatusUpdates{
+			Phase:      ClusterPhasePending,
+			K8sVersion: clusterInstance.Spec.KubernetesVersion,
+		}
+		err = r.updateClusterInstance(clusterInstance, createStatusUpdates)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 
 	return reconcile.Result{}, nil
+}
+
+type ClusterInstanceStatusUpdates struct {
+	Phase      string
+	K8sVersion string
+}
+
+// updateClusterInstance update status fields of the aks cluster instance object and emits events
+func (r *ReconcileAksCluster) updateClusterInstance(clusterInstance *azurev1beta1.AksCluster,
+	statusUpdates ClusterInstanceStatusUpdates) error {
+
+	clusterInstanceCopy := clusterInstance.DeepCopy()
+
+	clusterInstanceCopy.Status.Phase = azurev1beta1.ClusterStatusPhase(statusUpdates.Phase)
+	clusterInstanceCopy.Status.K8sVersion = azurev1beta1.ClusterKubernetesVersion(statusUpdates.K8sVersion)
+
+	// update status of AksCluster resource
+	err := r.Client.Update(context.Background(), clusterInstanceCopy)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to update aks cluster resource status fields for cluster %v: %v",
+			clusterInstanceCopy.Name, err,
+		)
+	}
+	return nil
 }

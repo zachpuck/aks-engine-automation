@@ -118,6 +118,18 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, err
 	}
 
+	// confirm credentials secret before create cluster
+	secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
+	clusterCredentials := azurev1beta1.AzureCredentials{
+		TenantId:       string(secretResults.Data["tenantId"]),
+		SubscriptionId: string(secretResults.Data["subscriptionId"]),
+		LoginId:        string(secretResults.Data["loginId"]),
+		LoginSecret:    string(secretResults.Data["loginSecret"]),
+	}
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	// Create cluster
 	if clusterInstance.Status.Phase == "" {
 		log.Info("creating", "Cluster:", clusterInstance.Name)
@@ -136,6 +148,16 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			return reconcile.Result{}, err
 		}
 
+		// multiple agent node pools
+		var newAgentPoolProfiles []opctlutil.AgentPoolProfiles
+		for i := range clusterInstance.Spec.AgentPoolProfiles {
+			newAgentPoolProfiles = append(newAgentPoolProfiles, opctlutil.AgentPoolProfiles{
+				Name:   clusterInstance.Spec.AgentPoolProfiles[i].Name,
+				Count:  clusterInstance.Spec.AgentPoolProfiles[i].Count,
+				VMSize: clusterInstance.Spec.AgentPoolProfiles[i].VmSize,
+			})
+		}
+
 		// Creates a config object from AksCluster custom resource spec
 		config := opctlutil.ClusterConfig{
 			APIVersion: "vlabs",
@@ -149,14 +171,7 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 					DNSPrefix: clusterInstance.Spec.MasterProfile.DnsPrefix,
 					VMSize:    clusterInstance.Spec.MasterProfile.VmSize,
 				},
-				// TODO: add for loop for multiple node pools
-				AgentPoolProfiles: []opctlutil.AgentPoolProfiles{
-					{
-						Name:   clusterInstance.Spec.AgentPoolProfiles[0].Name,
-						Count:  clusterInstance.Spec.AgentPoolProfiles[0].Count,
-						VMSize: clusterInstance.Spec.AgentPoolProfiles[0].VmSize,
-					},
-				},
+				AgentPoolProfiles: newAgentPoolProfiles,
 				LinuxProfile: opctlutil.LinuxProfile{
 					AdminUsername: "azureuser",
 					SSH: opctlutil.SSH{
@@ -171,20 +186,15 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 				// az ad sp create-for-rbac --role="Contributor" \
 				// --scopes="/subscriptions/<subscriptionId>/resourceGroups/<clusterResourceGroup>"
 				ServicePrincipalProfile: opctlutil.ServicePrincipalProfile{
-					ClientID: clusterInstance.Spec.Credentials.LoginId,
-					Secret:   clusterInstance.Spec.Credentials.LoginSecret,
+					ClientID: clusterCredentials.LoginId,
+					Secret:   clusterCredentials.LoginSecret,
 				},
 			},
 		}
 
 		// Starts the create-cluster operation
 		createClusterResult, err := opctl.CreateCluster(opctlutil.CreateClusterInput{
-			Credentials: azurev1beta1.AzureCredentials{
-				TenantId:       clusterInstance.Spec.Credentials.TenantId,
-				SubscriptionId: clusterInstance.Spec.Credentials.SubscriptionId,
-				LoginId:        clusterInstance.Spec.Credentials.LoginId,
-				LoginSecret:    clusterInstance.Spec.Credentials.LoginSecret,
-			},
+			Credentials: clusterCredentials,
 			Location:    clusterInstance.Spec.Location,
 			ClusterName: clusterInstance.Name,
 			Config:      config,
@@ -236,7 +246,7 @@ func (r *ReconcileAksCluster) updateClusterInstance(clusterInstance *azurev1beta
 	clusterInstanceCopy := clusterInstance.DeepCopy()
 
 	clusterInstanceCopy.Status.Phase = azurev1beta1.ClusterStatusPhase(statusUpdates.Phase)
-	clusterInstanceCopy.Status.K8sVersion = azurev1beta1.ClusterKubernetesVersion(statusUpdates.K8sVersion)
+	clusterInstanceCopy.Status.KubernetesVersion = azurev1beta1.ClusterKubernetesVersion(statusUpdates.K8sVersion)
 
 	// update status of AksCluster resource
 	err := r.Client.Update(context.Background(), clusterInstanceCopy)

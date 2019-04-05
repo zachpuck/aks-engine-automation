@@ -1,3 +1,15 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: akscluster-sample-secret
+type: Opaque
+data:
+  tenantId:
+  subscriptionId:
+  loginId:
+  loginSecret:
+---
 apiVersion: azure.cnct.io/v1beta1
 kind: AksCluster
 metadata:
@@ -5,11 +17,7 @@ metadata:
     controller-tools.k8s.io: "1.0"
   name: akscluster-sample
 spec:
-  credentials:
-    tenantId:
-    subscriptionId:
-    loginId:
-    loginSecret:
+  credentials: credentials-k8s-secret
   location: westus
   kubernetesVersion: "1.13"
   masterProfile:

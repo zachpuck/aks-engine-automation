@@ -42,18 +42,9 @@ spec:
                 type: object
               type: array
             credentials:
-              description: Credentials used to access the azure environment (must
-                have access to blob storageaccount)
-              properties:
-                loginId:
-                  type: string
-                loginSecret:
-                  type: string
-                subscriptionId:
-                  type: string
-                tenantId:
-                  type: string
-              type: object
+              description: Credentials references a secret used to access the azure
+                environment (must have access to blob storageaccount)
+              type: string
             kubernetesVersion:
               description: Kubernetes version
               type: string
@@ -77,6 +68,9 @@ spec:
           type: object
         status:
           properties:
+            kubernetesVersion:
+              description: Cluster kubernetes version
+              type: string
             phase:
               description: Cluster status
               type: string

@@ -28,8 +28,8 @@ type AksClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Credentials used to access the azure environment (must have access to blob storageaccount)
-	Credentials AzureCredentials `json:"credentials,omitempty"`
+	// Credentials references a secret used to access the azure environment (must have access to blob storageaccount)
+	Credentials string `json:"credentials,omitempty"`
 
 	// Region where you are creating the cluster
 	Location string `json:"location,omitempty"`
@@ -75,7 +75,7 @@ type AksClusterStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Cluster kubernetes version
-	K8sVersion ClusterKubernetesVersion `json:"k8sVersion,omitempty"`
+	KubernetesVersion ClusterKubernetesVersion `json:"kubernetesVersion,omitempty"`
 	// Cluster status
 	Phase ClusterStatusPhase `json:"phase,omitempty"`
 }

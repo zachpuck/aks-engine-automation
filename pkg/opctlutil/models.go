@@ -2,6 +2,7 @@ package opctlutil
 
 import (
 	azurev1beta1 "github.com/zachpuck/aks-engine-automation/pkg/apis/azure/v1beta1"
+	"time"
 )
 
 // ClusterConfig is used to create an aks-engine cluster in azure
@@ -54,4 +55,13 @@ type CreateClusterInput struct {
 
 type CreateClusterOutput struct {
 	OpId string
+}
+
+type GetOpEventsInput struct {
+	OpId      string
+	StartTime time.Time
+}
+
+type GetOpEventsOutput struct {
+	Outcome string
 }

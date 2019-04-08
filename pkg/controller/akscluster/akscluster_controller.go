@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"regexp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -31,7 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"time"
 
+	opctlmodel "github.com/opctl/sdk-golang/model"
 	"github.com/zachpuck/aks-engine-automation/pkg/k8sutil"
 	"github.com/zachpuck/aks-engine-automation/pkg/opctlutil"
 )
@@ -47,6 +50,7 @@ const (
 	ClusterPhaseReady             = "Ready"
 	ClusterPhaseFailed            = "Failed"
 	ClusterPhaseError             = "Error"
+	OpctlHostname                 = "localhost"
 )
 
 // Add creates a new AksCluster Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
@@ -120,14 +124,14 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 
 	// confirm credentials secret before create cluster
 	secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	clusterCredentials := azurev1beta1.AzureCredentials{
 		TenantId:       string(secretResults.Data["tenantId"]),
 		SubscriptionId: string(secretResults.Data["subscriptionId"]),
 		LoginId:        string(secretResults.Data["loginId"]),
 		LoginSecret:    string(secretResults.Data["loginSecret"]),
-	}
-	if err != nil {
-		return reconcile.Result{}, err
 	}
 
 	// Create cluster
@@ -203,14 +207,15 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			return reconcile.Result{}, err
 		}
 
-		// TODO: track opId result
 		matchPattern := regexp.MustCompile("^[a-zA-Z0-9]*$")
 		if !matchPattern.MatchString(createClusterResult.OpId) {
 
-			statusUpdate := ClusterInstanceStatusUpdates{
-				Phase: ClusterPhaseError,
+			statusUpdate := ClusterInstanceUpdates{
+				Name:      clusterInstance.Name,
+				Namespace: clusterInstance.Namespace,
+				Phase:     ClusterPhaseError,
 			}
-			err = r.updateClusterInstance(clusterInstance, statusUpdate)
+			err = r.updateClusterInstance(statusUpdate)
 			if err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update cluster status: %v", err)
 			}
@@ -221,35 +226,75 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			)
 		}
 
-		createStatusUpdates := ClusterInstanceStatusUpdates{
-			Phase:      ClusterPhasePending,
-			K8sVersion: clusterInstance.Spec.KubernetesVersion,
+		createClusterUpdates := ClusterInstanceUpdates{
+			Name:            clusterInstance.Name,
+			Namespace:       clusterInstance.Namespace,
+			Phase:           ClusterPhasePending,
+			K8sVersion:      clusterInstance.Spec.KubernetesVersion,
+			AnnotationKey:   "createClusterOpId",
+			AnnotationValue: createClusterResult.OpId,
 		}
-		err = r.updateClusterInstance(clusterInstance, createStatusUpdates)
+		err = r.updateClusterInstance(createClusterUpdates)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
+
+		// track operation result
+		go r.ResolveOperation(ResolveOperationInput{
+			Name:      clusterInstance.Name,
+			Namespace: clusterInstance.Namespace,
+			OpId:      createClusterResult.OpId,
+			StartTime: time.Now().UTC(),
+		})
 	}
 
 	return reconcile.Result{}, nil
 }
 
-type ClusterInstanceStatusUpdates struct {
-	Phase      string
-	K8sVersion string
+type ClusterInstanceUpdates struct {
+	Name            string
+	Namespace       string
+	Phase           string
+	K8sVersion      string
+	AnnotationKey   string
+	AnnotationValue string
 }
 
 // updateClusterInstance update status fields of the aks cluster instance object and emits events
-func (r *ReconcileAksCluster) updateClusterInstance(clusterInstance *azurev1beta1.AksCluster,
-	statusUpdates ClusterInstanceStatusUpdates) error {
+func (r *ReconcileAksCluster) updateClusterInstance(input ClusterInstanceUpdates) error {
+	// Fetch the AksCluster instance
+	clusterInstance := &azurev1beta1.AksCluster{}
+
+	err := r.Get(
+		context.Background(),
+		client.ObjectKey(
+			types.NamespacedName{
+				Name:      input.Name,
+				Namespace: input.Namespace,
+			}),
+		clusterInstance,
+	)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Error(err, "Object not found", "cluster", clusterInstance.Name)
+		}
+	}
 
 	clusterInstanceCopy := clusterInstance.DeepCopy()
 
-	clusterInstanceCopy.Status.Phase = azurev1beta1.ClusterStatusPhase(statusUpdates.Phase)
-	clusterInstanceCopy.Status.KubernetesVersion = azurev1beta1.ClusterKubernetesVersion(statusUpdates.K8sVersion)
+	// update status
+	clusterInstanceCopy.Status.Phase = azurev1beta1.ClusterStatusPhase(input.Phase)
+	// update k8s version
+	if input.K8sVersion != "" {
+		clusterInstanceCopy.Status.KubernetesVersion = azurev1beta1.ClusterKubernetesVersion(input.K8sVersion)
+	}
+	// update annotation
+	if input.AnnotationKey != "" {
+		clusterInstanceCopy.Annotations[input.AnnotationKey] = input.AnnotationValue
+	}
 
 	// update status of AksCluster resource
-	err := r.Client.Update(context.Background(), clusterInstanceCopy)
+	err = r.Client.Update(context.Background(), clusterInstanceCopy)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to update aks cluster resource status fields for cluster %v: %v",
@@ -257,4 +302,42 @@ func (r *ReconcileAksCluster) updateClusterInstance(clusterInstance *azurev1beta
 		)
 	}
 	return nil
+}
+
+type ResolveOperationInput struct {
+	Name      string
+	Namespace string
+	OpId      string
+	StartTime time.Time
+}
+
+// ResolveOperation waits for the provided operation to complete and update the aks cluster resource status phase
+func (r *ReconcileAksCluster) ResolveOperation(input ResolveOperationInput) {
+	// create a new opctl
+	opctl := opctlutil.New(OpctlHostname)
+
+	result, err := opctl.GetOpEvents(opctlutil.GetOpEventsInput{
+		OpId:      input.OpId,
+		StartTime: input.StartTime,
+	})
+	if err != nil {
+		log.Error(err, "failed to resolve operation for", "cluster", input.Name)
+	}
+
+	log.Info("Operation complete with", "outcome", result.Outcome)
+
+	// update cluster status
+	update := ClusterInstanceUpdates{
+		Name:      input.Name,
+		Namespace: input.Namespace,
+	}
+	if result.Outcome == opctlmodel.OpOutcomeSucceeded {
+		update.Phase = ClusterPhaseReady
+	} else {
+		update.Phase = ClusterPhaseFailed
+	}
+	err = r.updateClusterInstance(update)
+	if err != nil {
+		log.Error(err, "failed to update status phase on", "cluster", input.Name)
+	}
 }

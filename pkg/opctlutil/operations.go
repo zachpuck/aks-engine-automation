@@ -119,3 +119,40 @@ func generatePublicKey(privatekey *rsa.PublicKey) ([]byte, error) {
 
 	return pubKeyBytes, nil
 }
+
+// GetOpEvents starts event loop while operation is running until completion
+func (o *OPCTL) GetOpEvents(input GetOpEventsInput) (GetOpEventsOutput, error) {
+	eventChannel, err := o.Client.GetEventStream(
+		&model.GetEventStreamReq{
+			Filter: model.EventFilter{
+				Roots: []string{input.OpId},
+				Since: &input.StartTime,
+			},
+		})
+	if err != nil {
+		return GetOpEventsOutput{}, err
+	}
+
+	for {
+		select {
+
+		case event, isEventChannelOpen := <-eventChannel:
+			if !isEventChannelOpen {
+				return GetOpEventsOutput{}, err
+			}
+
+			if event.OpEnded != nil {
+				if event.OpEnded.OpID == input.OpId {
+					switch event.OpEnded.Outcome {
+					case model.OpOutcomeSucceeded:
+						return GetOpEventsOutput{Outcome: model.OpOutcomeSucceeded}, nil
+					case model.OpOutcomeKilled:
+						return GetOpEventsOutput{Outcome: model.OpOutcomeKilled}, nil
+					default:
+						return GetOpEventsOutput{Outcome: model.OpOutcomeFailed}, nil
+					}
+				}
+			}
+		}
+	}
+}

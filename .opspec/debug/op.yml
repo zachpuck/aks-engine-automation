@@ -36,13 +36,15 @@ run:
           - sh
           - -ce
           - |
-            apk add make
+            apk add make gcc libc-dev
             mkdir /root/.kube
             cat ./kind-config-$kindClusterName.yaml | sed s/localhost/host.docker.internal/ > /root/.kube/config
 
             make install
 
-            kubectl apply -f config/samples/azure_v1beta1_akscluster.yaml
+            echo "*****************************"
+            echo "Run 'export KUBECONFIG=kind-config-debug.yaml' to access the cluster in a seperate terminal from src directory"
+            echo "*****************************"
 
             make run
         envVars:

@@ -13,6 +13,7 @@ type ClusterConfig struct {
 type OrchestratorProfile struct {
 	OrchestratorType    string `json:"orchestratorType"`
 	OrchestratorRelease string `json:"orchestratorRelease"`
+	OrchestratorVersion string `json:"orchestratorVersion"`
 }
 type MasterProfile struct {
 	Count     int    `json:"count"`

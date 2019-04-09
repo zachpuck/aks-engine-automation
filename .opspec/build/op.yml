@@ -1,6 +1,14 @@
 name: build
 description: build the operator and opctl images
 inputs:
+  srcDir:
+    dir:
+      default: .
+      description: directory containing the projects source code
+  operatorDockerfile:
+    file:
+      default: ./Dockerfile
+      description: default is root of project
   DOCKERHUB_USERNAME:
     string:
       constraints: { minLength: 1 }
@@ -16,10 +24,13 @@ run:
     - op:
         pkg: { ref: build/build-opctl }
         inputs:
+          srcDir:
           DOCKERHUB_USERNAME:
           DOCKERHUB_PASSWORD:
     - op:
         pkg: { ref: build/build-operator }
         inputs:
+          srcDir:
+          dockerfile: $(operatorDockerfile)
           DOCKERHUB_USERNAME:
           DOCKERHUB_PASSWORD:

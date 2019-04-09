@@ -162,14 +162,28 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			})
 		}
 
+		// check if kubernetes version includes minor release
+		kubernetesProfile := opctlutil.OrchestratorProfile{
+			OrchestratorType: "Kubernetes",
+		}
+		matchVersion := regexp.MustCompile("[^1-9]")
+		matches := matchVersion.FindAllString(clusterInstance.Spec.KubernetesVersion, -1)
+		if len(matches) == 2 {
+			kubernetesProfile.OrchestratorVersion = clusterInstance.Spec.KubernetesVersion
+		} else if len(matches) == 1 {
+			kubernetesProfile.OrchestratorRelease = clusterInstance.Spec.KubernetesVersion
+		} else {
+			return reconcile.Result{}, fmt.Errorf(
+				"invalid kubernetes version: %v",
+				clusterInstance.Spec.KubernetesVersion,
+			)
+		}
+
 		// Creates a config object from AksCluster custom resource spec
 		config := opctlutil.ClusterConfig{
 			APIVersion: "vlabs",
 			Properties: opctlutil.Properties{
-				OrchestratorProfile: opctlutil.OrchestratorProfile{
-					OrchestratorType:    "Kubernetes",
-					OrchestratorRelease: clusterInstance.Spec.KubernetesVersion,
-				},
+				OrchestratorProfile: kubernetesProfile,
 				MasterProfile: opctlutil.MasterProfile{
 					Count:     clusterInstance.Spec.MasterProfile.Count,
 					DNSPrefix: clusterInstance.Spec.MasterProfile.DnsPrefix,

@@ -1,0 +1,25 @@
+name: build
+description: build the operator and opctl images
+inputs:
+  DOCKERHUB_USERNAME:
+    string:
+      constraints: { minLength: 1 }
+      description: Username for docker registry
+      isSecret: true
+  DOCKERHUB_PASSWORD:
+    string:
+      constraints: { minLength: 1 }
+      description: Password for docker registry
+      isSecret: true
+run:
+  serial:
+    - op:
+        pkg: { ref: build/build-opctl }
+        inputs:
+          DOCKERHUB_USERNAME:
+          DOCKERHUB_PASSWORD:
+    - op:
+        pkg: { ref: build/build-operator }
+        inputs:
+          DOCKERHUB_USERNAME:
+          DOCKERHUB_PASSWORD:

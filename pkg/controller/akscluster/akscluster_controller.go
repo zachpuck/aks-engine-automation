@@ -260,7 +260,7 @@ type ClusterInstanceUpdates struct {
 	AnnotationValue string
 }
 
-// updateClusterInstance update status fields of the aks cluster instance object and emits events
+// updateClusterInstance update status fields of the AksCluster instance object and emits events
 func (r *ReconcileAksCluster) updateClusterInstance(input ClusterInstanceUpdates) error {
 	// Fetch the AksCluster instance
 	clusterInstance := &azurev1beta1.AksCluster{}
@@ -297,7 +297,7 @@ func (r *ReconcileAksCluster) updateClusterInstance(input ClusterInstanceUpdates
 	err = r.Client.Update(context.Background(), clusterInstanceCopy)
 	if err != nil {
 		return fmt.Errorf(
-			"failed to update aks cluster resource status fields for cluster %v: %v",
+			"failed to update AksCluster resource status fields for cluster %v: %v",
 			clusterInstanceCopy.Name, err,
 		)
 	}
@@ -311,7 +311,7 @@ type ResolveOperationInput struct {
 	StartTime time.Time
 }
 
-// ResolveOperation waits for the provided operation to complete and update the aks cluster resource status phase
+// ResolveOperation waits for the provided operation to complete and update the AksCluster resource status phase
 func (r *ReconcileAksCluster) ResolveOperation(input ResolveOperationInput) {
 	// create a new opctl
 	opctl := opctlutil.New(OpctlHostname)

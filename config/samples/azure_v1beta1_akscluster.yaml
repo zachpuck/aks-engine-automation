@@ -19,7 +19,7 @@ metadata:
 spec:
   credentials: credentials-k8s-secret
   location: westus
-  kubernetesVersion: "1.13"
+  kubernetesVersion: "1.13.5"
   masterProfile:
     count: 1
     dnsPrefix: akscluster-sample

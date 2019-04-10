@@ -1,5 +1,5 @@
 name: provision-infra
-description: provision the infrastructure stores the state of the clusters in this repo
+description: provisions the storage infrastructure used to store the state produced by this repo
 inputs:
   subscriptionId:
     string:
@@ -17,12 +17,16 @@ inputs:
   location:
     string:
       constraints: { minLength: 1 }
-      description: location of the resource group
+      description: location of storage account
       default: westus
-  name:
+  resourceGroup:
     string:
       constraints: { minLength: 1 }
-      description: name of the resource group
+      description: resource group associated with storage account
+  name:
+    string:
+      constraints: { minLength: 3, maxLength: 24, pattern: '^[a-z0-9]+$' }
+      description: name of storage account (no dashes allowed)
   loginTenantId:
     string:
       constraints: { minLength: 1 }
@@ -33,31 +37,74 @@ inputs:
       constraints: { enum: [user, sp]}
       description: type of login; 'user' (default) or 'sp' for service principal
       default: sp
+  sku:
+    string:
+      constraints: { enum: [ Premium_LRS, Standard_GRS, Standard_LRS, Standard_RAGRS, Standard_ZRS ] }
+      description: sku of provisioned storage account
+      default: Standard_RAGRS
+# Use aks cluster to deploy operator to (true or false).
+  useAks:
+    boolean:
+      description: create management cluster to deploy to.
+      default: true
+  aksClusterName:
+    string:
+      constraints: { minLength: 1 }
+      description: name of aks cluster
+  nodeCount:
+    number:
+      constraints: { format: integer, minimum: 1 }
+      description: Number of nodes in the Kubernetes node pool.
+      default: 3
+  kubernetesVersion:
+    string:
+      constraints: { minLength: 1 }
+      description: Version of Kubernetes to use for creating the cluster.
+      default: 1.12.6
+  sshKeyValue:
+    file:
+      description: ssh key added to authorized_keys on provisioned cluster agents
 run:
   serial:
     - op:
         ref: github.com/opspec-pkgs/azure.group.create#2.1.0
         inputs:
+          loginTenantId:
+          subscriptionId:
           loginId:
           loginSecret:
-          name:
-          subscriptionId:
-          location:
-          loginTenantId:
           loginType:
+          name: $(resourceGroup)
+          location:
     - op:
         ref: github.com/opspec-pkgs/azure.storage.account.create#2.1.0
         inputs:
+          loginTenantId:
+          subscriptionId:
           loginId:
           loginSecret:
-          name: ${name}clusterData
-          resourceGroup:
-          subscriptionId:
+          loginType:
+          resourceGroup: $(resourceGroup)
+          name:
           location:
-          # params w/ default
-#          customDomain:
-#          kind:
-#          loginTenantId:
-#          loginType:
-#          sku:
-#          tags:
+          sku:
+    # create cluster if true
+    - if:
+        - eq: [ true, $(useAks)]
+      op:
+        ref: github.com/opspec-pkgs/azure.aks.create#1.1.0
+        inputs:
+          loginTenantId:
+          subscriptionId:
+          loginId:
+          loginSecret:
+          loginType:
+          location:
+          resourceGroup: $(resourceGroup)
+          name: $(aksClusterName)
+          dnsPrefix: $(aksClusterName)
+          sshKeyValue:
+          servicePrincipal: $(loginId)
+          clientSecret: $(loginSecret)
+          kubernetesVersion:
+          nodeCount:

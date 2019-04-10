@@ -66,3 +66,13 @@ type GetOpEventsInput struct {
 type GetOpEventsOutput struct {
 	Outcome string
 }
+
+type DeleteClusterInput struct {
+	Credentials azurev1beta1.AzureCredentials
+	Location    string
+	ClusterName string
+}
+
+type DeleteClusterOutput struct {
+	OpId string
+}

@@ -35,7 +35,7 @@ func CreateSecret(c client.Client, secret *corev1.Secret) error {
 	return nil
 }
 
-func CreateSSHSecret(c client.Client, clusterName string, namespace string, privateKey []byte) error {
+func CreateSSHSecret(c client.Client, ownerRef []v1.OwnerReference, clusterName string, namespace string, privateKey []byte) error {
 	secretName := clusterName + "-privatekey"
 	dataMap := make(map[string][]byte)
 	dataMap[corev1.SSHAuthPrivateKey] = privateKey
@@ -51,8 +51,8 @@ func CreateSSHSecret(c client.Client, clusterName string, namespace string, priv
 				Type: corev1.SecretTypeSSHAuth,
 				Data: dataMap,
 			}
-			//TODO: set owner reference
 
+			newSecret.OwnerReferences = ownerRef
 			err = CreateSecret(c, newSecret)
 			if err != nil {
 				glog.Errorf("failed to create ssh secret %s: %q", secret.GetName(), err)

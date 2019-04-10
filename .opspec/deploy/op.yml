@@ -1,13 +1,18 @@
 name: deploy
 description: deploy to a kubernetes cluster
 inputs:
+  srcDir:
+    dir:
+      default: .
+      description: directory containing the projects source code
   chartDir:
     dir:
       description: directory of helm chart
-      default: /helm/aks-engine-operator
+      default: deployments/helm/aks-engine-automation
   kubeConfig:
     file:
       description: kubeconfig for deployment cluster
+      default: /emptyConfig.yaml
   releaseName:
     string:
       description: name of helm release
@@ -15,21 +20,111 @@ inputs:
   valuesFile:
     file:
       description: helm values file
-      default: /helm/aks-engine-operator/values.yaml
+      default: deployments/helm/aks-engine-automation/values.yaml
   namespace:
     string:
       description: namespace to deploy into
       default: aks
+  # provision azure infrastructure
+  loginTenantId:
+    string:
+      constraints: { minLength: 1 }
+      description: tenant id of user, service principal, or app to login with
+  subscriptionId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of azure subscription
+  loginId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of user, service principal, or app to login with
+  loginSecret:
+    string:
+      constraints: { minLength: 1 }
+      description: secret of user, service principal, or app to login with
+      isSecret: true
+  loginType:
+    string:
+      constraints: { enum: [user, sp]}
+      description: type of login; 'user' (default) or 'sp' for service principal
+      default: sp
+  location:
+    string:
+      constraints: { minLength: 1 }
+      description: location of storage account
+      default: westus
+  storageResourceGroup:
+    string:
+      constraints: { minLength: 1 }
+      description: resource group associated with storage account
   storageAccountName:
     string:
-      constraints: { minLength: 1 }
-      description: name of azure storage account used by aks-engine-operator
-  storageAccountGroup:
+      constraints: { minLength: 3, maxLength: 24, pattern: '^[a-z0-9]+$' }
+      description: name of azure storage account used by aks-engine-operator (no dashes allowed)
+  sku:
+    string:
+      constraints: { enum: [ Premium_LRS, Standard_GRS, Standard_LRS, Standard_RAGRS, Standard_ZRS ] }
+      description: sku of provisioned storage account
+      default: Standard_RAGRS
+# build a new cluster to deploy to (true or false).
+  useAks:
+    boolean:
+      description: create management cluster to deploy to.
+      default: true
+  aksClusterName:
     string:
       constraints: { minLength: 1 }
-      description: name of azure resource group where storage account resides
+      description: name of aks cluster
+  nodeCount:
+    number:
+      constraints: { format: integer, minimum: 1 }
+      description: Number of nodes in the Kubernetes node pool.
+      default: 1
+  kubernetesVersion:
+    string:
+      constraints: { minLength: 1 }
+      description: Version of Kubernetes to use for creating the cluster.
+      default: 1.12.6
+  sshKeyValue:
+    file:
+      description: ssh key added to authorized_keys on provisioned cluster agents
 run:
   serial:
+    - op:
+        ref: provision-infra
+        inputs:
+          loginTenantId:
+          subscriptionId:
+          loginId:
+          loginSecret:
+          loginType:
+          location:
+          resourceGroup: $(storageResourceGroup)
+          name: $(storageAccountName)
+          sku:
+          useAks:
+          aksClusterName:
+          nodeCount:
+          kubernetesVersion:
+          sshKeyValue:
+    - if:
+        - eq: [ true, $(useAks) ]
+      op:
+        ref: github.com/opspec-pkgs/azure.aks.get-kubeconfig#1.1.0
+        inputs:
+          loginTenantId:
+          subscriptionId:
+          loginId:
+          loginSecret:
+          loginType:
+          resourceGroup: $(storageResourceGroup)
+          name: $(aksClusterName)
+        outputs:
+          kubeConfig:
+    - op:
+        pkg: { ref: github.com/opspec-pkgs/git.repo.resolve-commit#1.0.2 }
+        inputs: { dotGitDir: $(srcDir/.git) }
+        outputs: { commit: }
     - container:
         image: { ref: 'zachpuck/ops:latest' }
         workDir: /chart
@@ -37,19 +132,29 @@ run:
           /chart: $(chartDir)
         files:
           /kubeConfig.yaml: $(kubeConfig)
+        envVars:
+          storageResourceGroup:
+          storageAccountName:
+          releaseName:
         cmd:
           - sh
           - -ce
           - |
             export KUBECONFIG=/kubeConfig.yaml
-            kubectl get nodes
-#            mkdir /root/.kube
-#            cat ./kubeConfig.yaml | sed s/localhost/host.docker.internal/ > /root/.kube/config
-#            helm init --wait
-#
-#            helm upgrade $(releaseName) \
-#                /helm/aks-engine-operator \
-#                --namespace aks \
-#                --set storageAccount.name=$(storageAccountName) \
-#                --set storageAccount.name=$(storageAccountGroup) \
-#                --install --wait --timeout=600
+
+            if [ "$(kubectl get deploy -n kube-system --no-headers=true -o custom-columns=:metadata.name | grep tiller-deploy)" != "tiller-deploy" ]; then
+                echo "running helm init with tiller service account"
+                helm init --wait
+            else
+                echo "tiller already installed on cluster"
+                helm init --client-only
+            fi
+
+            helm upgrade $(releaseName) \
+                . \
+                --namespace aks \
+                --set storageAccount.group=$(storageResourceGroup) \
+                --set storageAccount.name=$(storageAccountName) \
+                --set images.operator.tag=$(commit) \
+                --set images.opctl.tag=$(commit) \
+                --install --wait --timeout=600

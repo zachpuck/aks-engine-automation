@@ -71,6 +71,10 @@ spec:
             kubernetesVersion:
               description: Cluster kubernetes version
               type: string
+            nodePoolCount:
+              description: Current number of node pools
+              format: int64
+              type: integer
             phase:
               description: Cluster status
               type: string

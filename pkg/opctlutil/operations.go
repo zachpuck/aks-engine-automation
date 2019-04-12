@@ -184,3 +184,43 @@ func (o *OPCTL) DeleteCluster(input DeleteClusterInput) (DeleteClusterOutput, er
 		OpId: opId,
 	}, nil
 }
+
+// AddNodePoolGroup adds a node pool group to the cluster
+func (o *OPCTL) AddNodePoolGroup(input AddNodePoolGroupInput) (AddNodePoolGroupOutput, error) {
+	// create config object
+	var configObject map[string]interface{}
+
+	encodedConfig, err := json.Marshal(input.Config)
+	if err != nil {
+		return AddNodePoolGroupOutput{}, fmt.Errorf("failed to encoded config: %v", err)
+	}
+	if err := json.Unmarshal(encodedConfig, &configObject); err != nil {
+		return AddNodePoolGroupOutput{}, fmt.Errorf("failed to create configObject: %v", err)
+	}
+
+	opId, err := o.Client.StartOp(
+		context.Background(),
+		model.StartOpReq{
+			Args: map[string]*model.Value{
+				"subscriptionId": {String: to.StringPtr(input.Credentials.SubscriptionId)},
+				"loginId":        {String: to.StringPtr(input.Credentials.LoginId)},
+				"loginSecret":    {String: to.StringPtr(input.Credentials.LoginSecret)},
+				"loginTenantId":  {String: to.StringPtr(input.Credentials.TenantId)},
+				"clusterName":    {String: to.StringPtr(input.ClusterName)},
+				"config":         {Object: configObject},
+				// Provided as part of the deployment
+				"storageAccountName":              {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_NAME"))},
+				"storageAccountResourceGroupName": {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_GROUP"))},
+			},
+			Op: model.StartOpReqOp{
+				Ref: os.Getenv("OPERATIONS_PKG_PATH") + "/add-node-pool",
+			},
+		})
+	if err != nil {
+		return AddNodePoolGroupOutput{}, fmt.Errorf("failed to start add-node-pool op: %v", err)
+	}
+
+	return AddNodePoolGroupOutput{
+		OpId: opId,
+	}, nil
+}

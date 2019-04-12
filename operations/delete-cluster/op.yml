@@ -1,0 +1,87 @@
+name: delete-cluster
+description: delete a cluster created by aks-engine
+inputs:
+  # inputs for logging into azure in the correct region
+  subscriptionId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of azure subscription
+  loginId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of user, service principal, or app to login with
+  loginSecret:
+    string:
+      constraints: { minLength: 1 }
+      description: secret of user, service principal, or app to login with
+      isSecret: true
+  location:
+    string:
+      constraints: { minLength: 1 }
+      description: location of the resources
+      default: westus
+  loginTenantId:
+    string:
+      constraints: { minLength: 1 }
+      description: tenant id of user, service principal, or app to login with
+      default: " "
+  loginType:
+    string:
+      constraints: { enum: [user, sp]}
+      description: type of login; 'user' (default) or 'sp' for service principal
+      default: sp
+  # cluster specific inputs
+  clusterName:
+    string:
+      constraints: { minLength: 1 }
+      description: the name of the cluster
+  # aks-engine operator specific
+  storageAccountName:
+    string:
+      constraints: { minLength: 1 }
+      description: name of storage account used to save ARM resourece Templates
+  storageAccountResourceGroupName:
+    string:
+      constraints: { minLength: 1 }
+      description: resource group where storage account exists
+run:
+  serial:
+    # Deleting cluster resource group
+    - op:
+        ref: github.com/opspec-pkgs/azure.group.delete#2.1.0
+        inputs:
+          loginId:
+          loginSecret:
+          name: $(clusterName)-group
+          subscriptionId:
+          loginTenantId:
+          loginType:
+    # Get storage account key
+    - op:
+        ref: github.com/opspec-pkgs/azure.storage.account.key.get#2.1.0
+        inputs:
+          loginId:
+          loginSecret:
+          resourceGroup: $(storageAccountResourceGroupName)
+          storageAccount: $(storageAccountName)
+          subscriptionId:
+          loginTenantId:
+          loginType:
+        outputs:
+          value:
+    # Delete azure storage container
+    - container:
+        image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+        cmd:
+          - sh
+          - -ce
+          - |
+            echo "deleting container for cluster ${clusterName}"
+            az storage container delete \
+              --name ${clusterName} \
+              --account-key $(value) \
+              --account-name $(storageAccountName)
+        envVars:
+          clusterName:
+          storageAccountName: $(storageAccountName)
+          storageAccountKey: $(value)

@@ -22,7 +22,9 @@ import (
 	azurev1beta1 "github.com/zachpuck/aks-engine-automation/pkg/apis/azure/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	runtimeSchema "k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"regexp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,6 +39,7 @@ import (
 	opctlmodel "github.com/opctl/sdk-golang/model"
 	"github.com/zachpuck/aks-engine-automation/pkg/k8sutil"
 	"github.com/zachpuck/aks-engine-automation/pkg/opctlutil"
+	"github.com/zachpuck/aks-engine-automation/pkg/util"
 )
 
 var log = logf.Log.WithName("controller")
@@ -122,21 +125,83 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, err
 	}
 
-	// confirm credentials secret before create cluster
-	secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-	clusterCredentials := azurev1beta1.AzureCredentials{
-		TenantId:       string(secretResults.Data["tenantId"]),
-		SubscriptionId: string(secretResults.Data["subscriptionId"]),
-		LoginId:        string(secretResults.Data["loginId"]),
-		LoginSecret:    string(secretResults.Data["loginSecret"]),
+	if clusterInstance.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, add the finalizer and update the object.
+		if !util.ContainsString(clusterInstance.ObjectMeta.Finalizers, azurev1beta1.AksClusterFinalizer) {
+			// add finalizer
+			clusterInstance.ObjectMeta.Finalizers =
+				append(clusterInstance.ObjectMeta.Finalizers, azurev1beta1.AksClusterFinalizer)
+			err = r.updateStatus(clusterInstance)
+			if err != nil {
+				log.Error(
+					err,
+					"could not update status of",
+					"Cluster", clusterInstance.Name,
+				)
+			}
+		}
+	} else {
+		// The object is being deleted.
+		if util.ContainsString(clusterInstance.ObjectMeta.Finalizers, azurev1beta1.AksClusterFinalizer) {
+			// confirm credentials secret before deleting cluster
+			secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+			clusterCredentials := azurev1beta1.AzureCredentials{
+				TenantId:       string(secretResults.Data["tenantId"]),
+				SubscriptionId: string(secretResults.Data["subscriptionId"]),
+				LoginId:        string(secretResults.Data["loginId"]),
+				LoginSecret:    string(secretResults.Data["loginSecret"]),
+			}
+
+			// get a new opctl client
+			opctl := opctlutil.New(OpctlHostname)
+
+			// Starts the delete-cluster operation
+			deleteClusterResult, err := opctl.DeleteCluster(opctlutil.DeleteClusterInput{
+				Credentials: clusterCredentials,
+				Location:    clusterInstance.Spec.Location,
+				ClusterName: clusterInstance.Name,
+			})
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+			log.Info("Deleting",
+				"Cluster", clusterInstance.Name,
+				"Operation Id", deleteClusterResult.OpId,
+			)
+
+			// update status to "deleting" and remove finalizer
+			clusterInstance.Status.Phase = ClusterPhaseDeleting
+			clusterInstance.ObjectMeta.Finalizers = util.RemoveString(
+				clusterInstance.ObjectMeta.Finalizers, azurev1beta1.AksClusterFinalizer,
+			)
+			err = r.updateStatus(clusterInstance)
+			if err != nil {
+				return reconcile.Result{}, fmt.Errorf(
+					"failed to update AksCluster %v to %v: %v",
+					clusterInstance.Name, ClusterPhaseDeleting, err,
+				)
+			}
+		}
 	}
 
 	// Create cluster
 	if clusterInstance.Status.Phase == "" {
-		log.Info("creating", "Cluster:", clusterInstance.Name)
+		// confirm credentials secret before create cluster
+		secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		clusterCredentials := azurev1beta1.AzureCredentials{
+			TenantId:       string(secretResults.Data["tenantId"]),
+			SubscriptionId: string(secretResults.Data["subscriptionId"]),
+			LoginId:        string(secretResults.Data["loginId"]),
+			LoginSecret:    string(secretResults.Data["loginSecret"]),
+		}
+
+		log.Info("Creating", "Cluster:", clusterInstance.Name)
 
 		// create a new opctl
 		opctl := opctlutil.New("localhost")
@@ -146,8 +211,22 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		if err != nil {
 			return reconcile.Result{}, err
 		}
+		// set secret owner ref
+		secretOwnerRef := []v1.OwnerReference{
+			*v1.NewControllerRef(clusterInstance,
+				runtimeSchema.GroupVersionKind{
+					Group:   azurev1beta1.SchemeGroupVersion.Group,
+					Version: azurev1beta1.SchemeGroupVersion.Version,
+					Kind:    "AksCluster",
+				}),
+		}
 		// save private key as secret
-		err = k8sutil.CreateSSHSecret(r.Client, clusterInstance.Name, clusterInstance.Namespace, sshPrivateKey)
+		err = k8sutil.CreateSSHSecret(r.Client,
+			secretOwnerRef,
+			clusterInstance.Name,
+			clusterInstance.Namespace,
+			sshPrivateKey,
+		)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -272,6 +351,32 @@ type ClusterInstanceUpdates struct {
 	K8sVersion      string
 	AnnotationKey   string
 	AnnotationValue string
+}
+
+// updateStatus
+func (r *ReconcileAksCluster) updateStatus(clusterInstance *azurev1beta1.AksCluster) error {
+	clusterFreshInstance := &azurev1beta1.AksCluster{}
+	err := r.Get(
+		context.Background(),
+		client.ObjectKey{
+			Name:      clusterInstance.Name,
+			Namespace: clusterInstance.Namespace,
+		}, clusterFreshInstance)
+	if err != nil {
+		return err
+	}
+
+	clusterFreshInstance.Status.Phase = clusterInstance.Status.Phase
+	clusterFreshInstance.Status.KubernetesVersion = clusterInstance.Status.KubernetesVersion
+	clusterFreshInstance.Annotations = clusterInstance.Annotations
+	clusterFreshInstance.ObjectMeta.Finalizers = clusterInstance.ObjectMeta.Finalizers
+
+	err = r.Update(context.Background(), clusterFreshInstance)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // updateClusterInstance update status fields of the AksCluster instance object and emits events

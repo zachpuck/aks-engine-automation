@@ -156,3 +156,31 @@ func (o *OPCTL) GetOpEvents(input GetOpEventsInput) (GetOpEventsOutput, error) {
 		}
 	}
 }
+
+// DeleteCluster deletes an aks-engine cluster
+func (o *OPCTL) DeleteCluster(input DeleteClusterInput) (DeleteClusterOutput, error) {
+	opId, err := o.Client.StartOp(
+		context.Background(),
+		model.StartOpReq{
+			Args: map[string]*model.Value{
+				"subscriptionId":                  {String: to.StringPtr(input.Credentials.SubscriptionId)},
+				"loginId":                         {String: to.StringPtr(input.Credentials.LoginId)},
+				"loginSecret":                     {String: to.StringPtr(input.Credentials.LoginSecret)},
+				"loginTenantId":                   {String: to.StringPtr(input.Credentials.TenantId)},
+				"location":                        {String: to.StringPtr(input.Location)},
+				"clusterName":                     {String: to.StringPtr(input.ClusterName)},
+				"storageAccountName":              {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_NAME"))},
+				"storageAccountResourceGroupName": {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_GROUP"))},
+			},
+			Op: model.StartOpReqOp{
+				Ref: os.Getenv("OPERATIONS_PKG_PATH") + "/delete-cluster",
+			},
+		})
+	if err != nil {
+		return DeleteClusterOutput{}, fmt.Errorf("failed to start delete-cluster op: %v", err)
+	}
+
+	return DeleteClusterOutput{
+		OpId: opId,
+	}, nil
+}

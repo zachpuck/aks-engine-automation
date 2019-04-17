@@ -1,0 +1,35 @@
+name: update-templates
+description: |
+  Updates Templates is part of AKS-Engine. This op takes in an existing set of templates and updates with the changes
+   to the apimodel.json. (https://github.com/Azure/aks-engine/blob/master/docs/tutorials/day2-operations.md#adding-a-node-pool)
+inputs:
+  modifiedApiModel:
+    object:
+      description: modified apimodel.json file used to update templates
+  templateDir:
+    dir:
+      description: directory containing template files
+  clusterName:
+    string:
+      constraints: { minLength: 1 }
+      description: the name of the cluster we are updating files for
+  storageAccountName:
+    string:
+      constraints: { minLength: 1 }
+  storageAccountKey:
+    string:
+      constraints: { minLength: 1 }
+      isSecret: true
+run:
+  container:
+    image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+    cmd: [ /cmd.sh ]
+    files:
+      /cmd.sh:
+      /modifiedApiModel.json: $(modifiedApiModel)
+    envVars:
+      clusterName:
+      storageAccountName:
+      storageAccountKey:
+    dirs:
+      /templates: $(templateDir)

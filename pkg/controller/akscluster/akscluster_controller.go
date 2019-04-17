@@ -21,6 +21,7 @@ import (
 	"fmt"
 	azurev1beta1 "github.com/zachpuck/aks-engine-automation/pkg/apis/azure/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -188,7 +189,7 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 	}
 
 	// Create cluster
-	if clusterInstance.Status.Phase == "" {
+	if clusterInstance.Status.Phase == ClusterPhaseNone {
 		// confirm credentials secret before create cluster
 		secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
 		if err != nil {
@@ -319,15 +320,13 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			)
 		}
 
-		createClusterUpdates := ClusterInstanceUpdates{
-			Name:            clusterInstance.Name,
-			Namespace:       clusterInstance.Namespace,
-			Phase:           ClusterPhasePending,
-			K8sVersion:      clusterInstance.Spec.KubernetesVersion,
-			AnnotationKey:   "createClusterOpId",
-			AnnotationValue: createClusterResult.OpId,
-		}
-		err = r.updateClusterInstance(createClusterUpdates)
+		// update cluster status and annotations
+		clusterInstance.Status.NodePoolCount = len(clusterInstance.Spec.AgentPoolProfiles)
+		clusterInstance.Status.Phase = ClusterPhasePending
+		clusterInstance.Status.KubernetesVersion = azurev1beta1.ClusterKubernetesVersion(clusterInstance.Spec.KubernetesVersion)
+		clusterInstance.ObjectMeta.Annotations["createClusterOpId"] = createClusterResult.OpId
+
+		err = r.updateStatus(clusterInstance)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -339,6 +338,23 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 			OpId:      createClusterResult.OpId,
 			StartTime: time.Now().UTC(),
 		})
+	}
+
+	// respond to cluster "Ready" status
+	if clusterInstance.Status.Phase == ClusterPhaseReady {
+		// Check if adding/removing node pool
+		if len(clusterInstance.Spec.AgentPoolProfiles) != clusterInstance.Status.NodePoolCount {
+			err = r.updateNodePools(clusterInstance)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+		// TODO:
+		// Scaling
+		// Resizing node pool
+		// Resizing VMs
+		// Upgrading Kubernetes
+
 	}
 
 	return reconcile.Result{}, nil
@@ -366,8 +382,9 @@ func (r *ReconcileAksCluster) updateStatus(clusterInstance *azurev1beta1.AksClus
 		return err
 	}
 
-	clusterFreshInstance.Status.Phase = clusterInstance.Status.Phase
+	clusterFreshInstance.Status.NodePoolCount = clusterInstance.Status.NodePoolCount
 	clusterFreshInstance.Status.KubernetesVersion = clusterInstance.Status.KubernetesVersion
+	clusterFreshInstance.Status.Phase = clusterInstance.Status.Phase
 	clusterFreshInstance.Annotations = clusterInstance.Annotations
 	clusterFreshInstance.ObjectMeta.Finalizers = clusterInstance.ObjectMeta.Finalizers
 
@@ -443,7 +460,7 @@ func (r *ReconcileAksCluster) ResolveOperation(input ResolveOperationInput) {
 		log.Error(err, "failed to resolve operation for", "cluster", input.Name)
 	}
 
-	log.Info("Operation complete with", "outcome", result.Outcome)
+	log.Info("Operation complete with", "ID", input.OpId, "Outcome", result.Outcome)
 
 	// update cluster status
 	update := ClusterInstanceUpdates{
@@ -459,4 +476,157 @@ func (r *ReconcileAksCluster) ResolveOperation(input ResolveOperationInput) {
 	if err != nil {
 		log.Error(err, "failed to update status phase on", "cluster", input.Name)
 	}
+}
+
+// getCredentials gets the existing cluster credentials from secret
+func (r *ReconcileAksCluster) getCredentials(clusterInstance *azurev1beta1.AksCluster) (azurev1beta1.AzureCredentials, error) {
+	// confirm credentials secret before create cluster
+	secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
+	if err != nil {
+		return azurev1beta1.AzureCredentials{}, err
+	}
+	clusterCredentials := azurev1beta1.AzureCredentials{
+		TenantId:       string(secretResults.Data["tenantId"]),
+		SubscriptionId: string(secretResults.Data["subscriptionId"]),
+		LoginId:        string(secretResults.Data["loginId"]),
+		LoginSecret:    string(secretResults.Data["loginSecret"]),
+	}
+
+	return clusterCredentials, nil
+}
+
+// generateClusterConfig generates a aks-engine config from cluster instance.
+func (r *ReconcileAksCluster) generateClusterConfig(clusterInstance *azurev1beta1.AksCluster) (opctlutil.ClusterConfig, error) {
+	clusterCredentials, err := r.getCredentials(clusterInstance)
+	if err != nil {
+		return opctlutil.ClusterConfig{}, err
+	}
+
+	// multiple agent node pools
+	var newAgentPoolProfiles []opctlutil.AgentPoolProfiles
+	for i := range clusterInstance.Spec.AgentPoolProfiles {
+		newAgentPoolProfiles = append(newAgentPoolProfiles, opctlutil.AgentPoolProfiles{
+			Name:   clusterInstance.Spec.AgentPoolProfiles[i].Name,
+			Count:  clusterInstance.Spec.AgentPoolProfiles[i].Count,
+			VMSize: clusterInstance.Spec.AgentPoolProfiles[i].VmSize,
+		})
+	}
+
+	// check if kubernetes version includes minor release
+	kubernetesProfile := opctlutil.OrchestratorProfile{
+		OrchestratorType: "Kubernetes",
+	}
+	matchVersion := regexp.MustCompile("[^1-9]")
+	matches := matchVersion.FindAllString(clusterInstance.Spec.KubernetesVersion, -1)
+	if len(matches) == 2 {
+		kubernetesProfile.OrchestratorVersion = clusterInstance.Spec.KubernetesVersion
+	} else if len(matches) == 1 {
+		kubernetesProfile.OrchestratorRelease = clusterInstance.Spec.KubernetesVersion
+	} else {
+		return opctlutil.ClusterConfig{}, fmt.Errorf(
+			"invalid kubernetes version: %v",
+			clusterInstance.Spec.KubernetesVersion,
+		)
+	}
+
+	sshPublicKeySecret, err := k8sutil.GetSecret(r.Client,
+		fmt.Sprintf("%s-%s", clusterInstance.Name,
+			k8sutil.PrivateKeySuffix),
+		clusterInstance.Namespace,
+	)
+	if err != nil {
+		return opctlutil.ClusterConfig{}, err
+	}
+	sshPublicKey := string(sshPublicKeySecret.Data[corev1.SSHAuthPrivateKey])
+
+	// Creates a config object from AksCluster custom resource spec
+	config := opctlutil.ClusterConfig{
+		APIVersion: "vlabs",
+		Properties: opctlutil.Properties{
+			OrchestratorProfile: kubernetesProfile,
+			MasterProfile: opctlutil.MasterProfile{
+				Count:     clusterInstance.Spec.MasterProfile.Count,
+				DNSPrefix: clusterInstance.Spec.MasterProfile.DnsPrefix,
+				VMSize:    clusterInstance.Spec.MasterProfile.VmSize,
+			},
+			AgentPoolProfiles: newAgentPoolProfiles,
+			LinuxProfile: opctlutil.LinuxProfile{
+				AdminUsername: "azureuser",
+				SSH: opctlutil.SSH{
+					PublicKeys: []opctlutil.PublicKeys{
+						{
+							KeyData: sshPublicKey,
+						},
+					},
+				},
+			},
+			ServicePrincipalProfile: opctlutil.ServicePrincipalProfile{
+				ClientID: clusterCredentials.LoginId,
+				Secret:   clusterCredentials.LoginSecret,
+			},
+		},
+	}
+	return config, nil
+}
+
+// updateNodePools updates the number of available node pools
+func (r *ReconcileAksCluster) updateNodePools(clusterInstance *azurev1beta1.AksCluster) error {
+	// get azure credentials
+	azureCreds, err := r.getCredentials(clusterInstance)
+	if err != nil {
+		return err
+	}
+
+	clusterConfig, err := r.generateClusterConfig(clusterInstance)
+	if err != nil {
+		return err
+	}
+
+	// create a new opctl
+	opctl := opctlutil.New(OpctlHostname)
+
+	// Add node pool group
+	if len(clusterInstance.Spec.AgentPoolProfiles) > clusterInstance.Status.NodePoolCount {
+		addResults, err := opctl.AddNodePoolGroup(opctlutil.AddNodePoolGroupInput{
+			Credentials: azureCreds,
+			ClusterName: clusterInstance.Name,
+			Config:      clusterConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add node pool for cluster %v: %v", clusterInstance.Name, err)
+		}
+		log.Info("Adding Node Pool for",
+			"Cluster", clusterInstance.Name,
+			"Operation ID", addResults.OpId,
+		)
+
+		// update cluster status
+		clusterInstance.Status.Phase = ClusterPhasePending
+		clusterInstance.Status.NodePoolCount = len(clusterInstance.Spec.AgentPoolProfiles)
+		err = r.updateStatus(clusterInstance)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to update cluster %v status when updating node pools: %v",
+				clusterInstance.Name, err,
+			)
+		}
+
+		// track operation result
+		go r.ResolveOperation(ResolveOperationInput{
+			Name:      clusterInstance.Name,
+			Namespace: clusterInstance.Namespace,
+			OpId:      addResults.OpId,
+			StartTime: time.Now().UTC(),
+		})
+
+		return nil
+	}
+
+	// Remove node pool group
+	if len(clusterInstance.Spec.AgentPoolProfiles) < clusterInstance.Status.NodePoolCount {
+		// TODO: drain/cordon nodes before removal
+	}
+
+	log.Info("No changes to node pools for", "Cluster", clusterInstance.Name)
+	return nil
 }

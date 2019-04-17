@@ -69,12 +69,15 @@ type AgentPoolProfileConfig struct {
 
 type ClusterStatusPhase string
 type ClusterKubernetesVersion string
+type ClusterNodePoolCount int
 
 // AksClusterStatus defines the observed state of AksCluster
 type AksClusterStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// Current number of node pools
+	NodePoolCount int `json:"nodePoolCount,omitempty"`
 	// Cluster kubernetes version
 	KubernetesVersion ClusterKubernetesVersion `json:"kubernetesVersion,omitempty"`
 	// Cluster status

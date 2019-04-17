@@ -2,6 +2,7 @@ package k8sutil
 
 import (
 	"context"
+	"fmt"
 	"github.com/golang/glog"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -9,6 +10,8 @@ import (
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const PrivateKeySuffix = "privatekey"
 
 func GetSecret(c client.Client, name string, namespace string) (corev1.Secret, error) {
 	secret := &corev1.Secret{}
@@ -36,7 +39,7 @@ func CreateSecret(c client.Client, secret *corev1.Secret) error {
 }
 
 func CreateSSHSecret(c client.Client, ownerRef []v1.OwnerReference, clusterName string, namespace string, privateKey []byte) error {
-	secretName := clusterName + "-privatekey"
+	secretName := fmt.Sprintf("%s-%s", clusterName, PrivateKeySuffix)
 	dataMap := make(map[string][]byte)
 	dataMap[corev1.SSHAuthPrivateKey] = privateKey
 

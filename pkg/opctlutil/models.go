@@ -76,3 +76,13 @@ type DeleteClusterInput struct {
 type DeleteClusterOutput struct {
 	OpId string
 }
+
+type AddNodePoolGroupInput struct {
+	Credentials azurev1beta1.AzureCredentials
+	ClusterName string
+	Config      ClusterConfig
+}
+
+type AddNodePoolGroupOutput struct {
+	OpId string
+}

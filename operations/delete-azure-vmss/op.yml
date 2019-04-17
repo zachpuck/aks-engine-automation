@@ -1,0 +1,49 @@
+name: delete-azure-vmss
+description: delete all vmss provided in vmssArray input
+inputs:
+  # inputs for logging into azure in the correct region
+  subscriptionId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of azure subscription
+  loginId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of user, service principal, or app to login with
+  loginSecret:
+    string:
+      constraints: { minLength: 1 }
+      description: secret of user, service principal, or app to login with
+      isSecret: true
+  loginTenantId:
+    string:
+      constraints: { minLength: 1 }
+      description: tenant id of user, service principal, or app to login with
+      default: " "
+  loginType:
+    string:
+      constraints: { enum: [user, sp]}
+      description: type of login; 'user' (default) or 'sp' for service principal
+      default: sp
+  # cluster specific inputs
+  clusterName:
+    string:
+      constraints: { minLength: 1 }
+      description: the name of the cluster
+  nodePools:
+    array:
+      description: array of node pool names to delete in azure
+run:
+  container:
+    image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+    cmd: [ /cmd.sh ]
+    files:
+      /cmd.sh:
+    envVars:
+      subscriptionId:
+      loginId:
+      loginSecret:
+      loginTenantId:
+      loginType:
+      clusterName:
+      nodePools:

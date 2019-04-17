@@ -207,6 +207,7 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		// create a new opctl
 		opctl := opctlutil.New("localhost")
 
+		// TODO: test ssh key
 		// generate ssh key
 		sshPrivateKey, sshPublicKey, err := opctlutil.GenerateSshKey()
 		if err != nil {
@@ -529,6 +530,7 @@ func (r *ReconcileAksCluster) generateClusterConfig(clusterInstance *azurev1beta
 		)
 	}
 
+	// TODO: FIX: this is using the private key not the public.
 	sshPublicKeySecret, err := k8sutil.GetSecret(r.Client,
 		fmt.Sprintf("%s-%s", clusterInstance.Name,
 			k8sutil.PrivateKeySuffix),
@@ -595,7 +597,7 @@ func (r *ReconcileAksCluster) updateNodePools(clusterInstance *azurev1beta1.AksC
 		if err != nil {
 			return fmt.Errorf("failed to add node pool for cluster %v: %v", clusterInstance.Name, err)
 		}
-		log.Info("Adding Node Pool for",
+		log.Info("Adding node pool(s) for",
 			"Cluster", clusterInstance.Name,
 			"Operation ID", addResults.OpId,
 		)
@@ -624,7 +626,40 @@ func (r *ReconcileAksCluster) updateNodePools(clusterInstance *azurev1beta1.AksC
 
 	// Remove node pool group
 	if len(clusterInstance.Spec.AgentPoolProfiles) < clusterInstance.Status.NodePoolCount {
-		// TODO: drain/cordon nodes before removal
+		removeResults, err := opctl.RemoveNodePoolGroup(opctlutil.RemoveNodePoolGroupInput{
+			Credentials: azureCreds,
+			Location:    clusterInstance.Spec.Location,
+			ClusterName: clusterInstance.Name,
+			Config:      clusterConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to remove node pool for cluster %v: %v", clusterInstance.Name, err)
+		}
+		log.Info("Removing node pool(s) for",
+			"Cluster", clusterInstance.Name,
+			"Operation Id", removeResults.OpId,
+		)
+
+		// update cluster status
+		clusterInstance.Status.Phase = ClusterPhasePending
+		clusterInstance.Status.NodePoolCount = len(clusterInstance.Spec.AgentPoolProfiles)
+		err = r.updateStatus(clusterInstance)
+		if err != nil {
+			return fmt.Errorf(
+				"failed to update cluster %v status with removing node pools: %v",
+				clusterInstance.Name, err,
+			)
+		}
+
+		// track operation result
+		go r.ResolveOperation(ResolveOperationInput{
+			Name:      clusterInstance.Name,
+			Namespace: clusterInstance.Namespace,
+			OpId:      removeResults.OpId,
+			StartTime: time.Now().UTC(),
+		})
+
+		return nil
 	}
 
 	log.Info("No changes to node pools for", "Cluster", clusterInstance.Name)

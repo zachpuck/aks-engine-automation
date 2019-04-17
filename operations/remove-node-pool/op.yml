@@ -1,5 +1,5 @@
-name: create-cluster
-description: create a new cluster using aks-engine
+name: remove-node-pool
+description: remove a node pool from an existing cluster using aks-engine
 inputs:
   # inputs for logging into azure in the correct region
   subscriptionId:
@@ -15,10 +15,6 @@ inputs:
       constraints: { minLength: 1 }
       description: secret of user, service principal, or app to login with
       isSecret: true
-  location:
-    string:
-      constraints: { minLength: 1 }
-      description: location of the resources
   loginTenantId:
     string:
       constraints: { minLength: 1 }
@@ -29,6 +25,10 @@ inputs:
       constraints: { enum: [user, sp]}
       description: type of login; 'user' (default) or 'sp' for service principal
       default: sp
+  location:
+    string:
+      constraints: { minLength: 1 }
+      description: location of the resources
   # cluster specific inputs
   clusterName:
     string:
@@ -48,17 +48,6 @@ inputs:
       description: resource group where storage account exists
 run:
   serial:
-    # Creating cluster resource group
-    - op:
-        ref: github.com/opspec-pkgs/azure.group.create#2.1.0
-        inputs:
-          loginId:
-          loginSecret:
-          name: $(clusterName)-group
-          subscriptionId:
-          location:
-          loginTenantId:
-          loginType:
     # Get storage account key
     - op:
         ref: github.com/opspec-pkgs/azure.storage.account.key.get#2.1.0
@@ -72,16 +61,58 @@ run:
           loginType:
         outputs:
           value:
-    # Generating ARM resource templates
-    - op:
-        ref: generate-templates
-        inputs:
-          config:
+    # Get templates from azure storage
+    - container:
+        image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+        cmd:
+          - sh
+          - -ce
+          - |
+            echo "downloading aks-engine templates"
+            az storage blob download-batch \
+              --destination . \
+              --source $(clusterName) \
+              --account-key $(value) \
+              --account-name $(storageAccountName) > /dev/null
+
+            cat ./apimodel.json > /apimodel.json
+            cat ./kubeconfig/kubeconfig.$(location).json > /kubeConfig.json
+        envVars:
           clusterName:
           storageAccountName: $(storageAccountName)
           storageAccountKey: $(value)
-        outputs:
-          templates:
+          location:
+        dirs:
+          /templates: $(templates)
+        workDir: /templates
+        files:
+          /apimodel.json: $(apiModel)
+          /kubeConfig.json: $(kubeConfig)
+    # Remove node pool from "agentPoolProfiles"
+    - container:
+        image: { ref: node:10.15.3-alpine }
+        cmd: [ node, /removeJSON.js ]
+        files:
+          /removeJSON.js:
+          /cluster.config: $(config)
+          /apimodel.json: $(apiModel)
+          /updatedApiModel.json: $(updateApiModel)
+          /nodePoolsToDrain.json: $(nodePools)
+    # Drain nodes in removed node pool(s)
+    - op:
+        ref: drain-node-pools
+        inputs:
+          kubeConfig: $(kubeConfig)
+          nodePools:
+    # update the clusters azure ARM templates
+    - op:
+        ref: update-templates
+        inputs:
+          modifiedApiModel: $(updateApiModel)
+          templateDir: $(templates)
+          clusterName:
+          storageAccountName: $(storageAccountName)
+          storageAccountKey: $(value)
     # Get templates from azure storage
     - container:
         image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
@@ -123,3 +154,14 @@ run:
           parameters: $(parameters)
           resourceGroup: $(clusterName)-group
           template: $(template)
+    # Delete node pool(s) azure resource(s).
+    - op:
+        ref: delete-azure-vmss
+        inputs:
+          loginTenantId:
+          subscriptionId:
+          loginType:
+          loginId:
+          loginSecret:
+          clusterName:
+          nodePools:

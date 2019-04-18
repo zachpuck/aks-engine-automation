@@ -86,3 +86,14 @@ type AddNodePoolGroupInput struct {
 type AddNodePoolGroupOutput struct {
 	OpId string
 }
+
+type RemoveNodePoolGroupInput struct {
+	Credentials azurev1beta1.AzureCredentials
+	Location    string
+	ClusterName string
+	Config      ClusterConfig
+}
+
+type RemoveNodePoolGroupOutput struct {
+	OpId string
+}

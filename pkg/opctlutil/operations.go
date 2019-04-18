@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/opctl/sdk-golang/model"
@@ -85,7 +86,12 @@ func GenerateSshKey() ([]byte, string, error) {
 		log.Fatal(err.Error())
 	}
 
-	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	privateKeyBytes := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+		},
+	)
 
 	return privateKeyBytes, string(publicKeyBytes), nil
 }
@@ -221,6 +227,47 @@ func (o *OPCTL) AddNodePoolGroup(input AddNodePoolGroupInput) (AddNodePoolGroupO
 	}
 
 	return AddNodePoolGroupOutput{
+		OpId: opId,
+	}, nil
+}
+
+// RemoveNodePoolGroup removes a node pool group from the cluster
+func (o *OPCTL) RemoveNodePoolGroup(input RemoveNodePoolGroupInput) (RemoveNodePoolGroupOutput, error) {
+	// create config object
+	var configObject map[string]interface{}
+
+	encodedConfig, err := json.Marshal(input.Config)
+	if err != nil {
+		return RemoveNodePoolGroupOutput{}, fmt.Errorf("failed to encoded config: %v", err)
+	}
+	if err := json.Unmarshal(encodedConfig, &configObject); err != nil {
+		return RemoveNodePoolGroupOutput{}, fmt.Errorf("failed to create configObject: %v", err)
+	}
+
+	opId, err := o.Client.StartOp(
+		context.Background(),
+		model.StartOpReq{
+			Args: map[string]*model.Value{
+				"subscriptionId": {String: to.StringPtr(input.Credentials.SubscriptionId)},
+				"loginId":        {String: to.StringPtr(input.Credentials.LoginId)},
+				"loginSecret":    {String: to.StringPtr(input.Credentials.LoginSecret)},
+				"loginTenantId":  {String: to.StringPtr(input.Credentials.TenantId)},
+				"location":       {String: to.StringPtr(input.Location)},
+				"clusterName":    {String: to.StringPtr(input.ClusterName)},
+				"config":         {Object: configObject},
+				// Provided as part of the deployment
+				"storageAccountName":              {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_NAME"))},
+				"storageAccountResourceGroupName": {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_GROUP"))},
+			},
+			Op: model.StartOpReqOp{
+				Ref: os.Getenv("OPERATIONS_PKG_PATH") + "/remove-node-pool",
+			},
+		})
+	if err != nil {
+		return RemoveNodePoolGroupOutput{}, fmt.Errorf("failed to start remove-node-pool op: %v", err)
+	}
+
+	return RemoveNodePoolGroupOutput{
 		OpId: opId,
 	}, nil
 }

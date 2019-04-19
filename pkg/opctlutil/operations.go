@@ -12,7 +12,6 @@ import (
 	"github.com/opctl/sdk-golang/model"
 	nodeapi "github.com/opctl/sdk-golang/node/api/client"
 	"golang.org/x/crypto/ssh"
-	"log"
 	"net/url"
 	"os"
 )
@@ -83,7 +82,7 @@ func GenerateSshKey() ([]byte, string, error) {
 
 	publicKeyBytes, err := generatePublicKey(&privateKey.PublicKey)
 	if err != nil {
-		log.Fatal(err.Error())
+		return nil, "", err
 	}
 
 	privateKeyBytes := pem.EncodeToMemory(
@@ -115,8 +114,8 @@ func generatePrivateKey(bitSize int) (*rsa.PrivateKey, error) {
 
 // generatePublicKey take a rsa.PublicKey and return bytes suitable for writing to .pub file
 // returns in the format "ssh-rsa ..."
-func generatePublicKey(privatekey *rsa.PublicKey) ([]byte, error) {
-	publicRsaKey, err := ssh.NewPublicKey(privatekey)
+func generatePublicKey(publickey *rsa.PublicKey) ([]byte, error) {
+	publicRsaKey, err := ssh.NewPublicKey(publickey)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +123,17 @@ func generatePublicKey(privatekey *rsa.PublicKey) ([]byte, error) {
 	pubKeyBytes := ssh.MarshalAuthorizedKey(publicRsaKey)
 
 	return pubKeyBytes, nil
+}
+
+// GetPublicKey from private key
+func GetPublicKeyFromPrivate(privateKey string) (string, error) {
+	block, _ := pem.Decode([]byte(privateKey))
+
+	key, _ := x509.ParsePKCS1PrivateKey(block.Bytes)
+
+	publicKeyBytes, _ := generatePublicKey(&key.PublicKey)
+
+	return string(publicKeyBytes), nil
 }
 
 // GetOpEvents starts event loop while operation is running until completion

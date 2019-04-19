@@ -530,8 +530,8 @@ func (r *ReconcileAksCluster) generateClusterConfig(clusterInstance *azurev1beta
 		)
 	}
 
-	// TODO: FIX: this is using the private key not the public.
-	sshPublicKeySecret, err := k8sutil.GetSecret(r.Client,
+	// Get public key from private key secret
+	sshPrivateKeySecret, err := k8sutil.GetSecret(r.Client,
 		fmt.Sprintf("%s-%s", clusterInstance.Name,
 			k8sutil.PrivateKeySuffix),
 		clusterInstance.Namespace,
@@ -539,7 +539,12 @@ func (r *ReconcileAksCluster) generateClusterConfig(clusterInstance *azurev1beta
 	if err != nil {
 		return opctlutil.ClusterConfig{}, err
 	}
-	sshPublicKey := string(sshPublicKeySecret.Data[corev1.SSHAuthPrivateKey])
+
+	sshPrivateKey := string(sshPrivateKeySecret.Data[corev1.SSHAuthPrivateKey])
+	sshPublicKey, err := opctlutil.GetPublicKeyFromPrivate(sshPrivateKey)
+	if err != nil {
+		return opctlutil.ClusterConfig{}, fmt.Errorf("error getting public key: %v", err)
+	}
 
 	// Creates a config object from AksCluster custom resource spec
 	config := opctlutil.ClusterConfig{

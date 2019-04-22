@@ -25,31 +25,45 @@ helm install deployments/helm/aks-engine-automation
   --set storageAccount.group="aks-operator-group"
 ```
 
+#### Usage
+Once the Operator is installed and running in a kubernetes cluster you can begin creating AksCluster Custom Resources.
+An sample resource is located in [config/samples](config/samples).
+The sample contains two resources.
+1. A kubernetes secret that contains your azure credentials.
+1. An `AksCluster` custom resource used to define the details of your cluster.
+
+The Operator has two containers. One container is the kubernetes operator itself and will show the logs 
+related managing the `Akscluster` Custom resources. The second container is the `opctl`.
+The logs from `opctl` container show the indivdiual results of each ["operation"](operations) 
+(the individual steps of managing clusters: create, update, add node, ect..). 
+Each of these operations returns the results to standard out. 
+
+The `operations` are created using [opctl](https://opctl.io/docs/)
+
 #### Build
 To build new images:
 `opctl run build`
 
-#### Local Debug (using Opctl):
+This will build
+
+#### Local Debug:
 
 Requirements:
-1. docker
-2. [opctl](https://opctl.io/docs/getting-started/opctl.html#installation)
+1. [minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/)
 
  Steps:
-1. set dockerSocket in your environment, typically: `export dockerSocket=/var/run/docker.sock`
-1. start debug op: `opctl run debug`
+1. `minikube start`
+1. `make install`
+1. `make run`
 
-This will start a a container running [kind](https://github.com/kubernetes-sigs/kind) and one running `aks-engine-automation` that will use the kubeconfig for the kind cluster
-The kind-config-debug.yaml will be located in the root of this repo and can be used to access the kind cluster locally by setting `export KUBECONFIG=<repo-path>/kind-config-debug.yaml`
+In as separate terminal: 
+1. update sample CR with your azure credentials: ./config/samples/azure_v1beta1_akscluster.yaml
+1. `kubectl apply -f ./config/samples/azure_v1beta1_akscluster.yaml`
 
-**Cleanup after debugging**:
-
-Once you have completed locally debugging run `opctl run cleanup` to stop the kind cluster and remove its kubeconfig from the repo.
-
+You can now see the created resource by typing `kubectl get akcluster`
 
 **Features needed**:
 1. scaling
-1. add additional node pool
 1. upgrade kubernetes version
 1. custom vnets
 1. availability zones

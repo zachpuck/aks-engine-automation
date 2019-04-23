@@ -281,3 +281,34 @@ func (o *OPCTL) RemoveNodePoolGroup(input RemoveNodePoolGroupInput) (RemoveNodeP
 		OpId: opId,
 	}, nil
 }
+
+// ScaleNodePool increases/decreases the number of instances for a given node pool
+func (o *OPCTL) ScaleNodePool(input ScaleNodePoolInput) (ScaleNodePoolOutput, error) {
+	opId, err := o.Client.StartOp(
+		context.Background(),
+		model.StartOpReq{
+			Args: map[string]*model.Value{
+				"subscriptionId": {String: to.StringPtr(input.Credentials.SubscriptionId)},
+				"loginId":        {String: to.StringPtr(input.Credentials.LoginId)},
+				"loginSecret":    {String: to.StringPtr(input.Credentials.LoginSecret)},
+				"loginTenantId":  {String: to.StringPtr(input.Credentials.TenantId)},
+				"location":       {String: to.StringPtr(input.Location)},
+				"clusterName":    {String: to.StringPtr(input.ClusterName)},
+				"nodePoolName":   {String: to.StringPtr(input.NodePoolName)},
+				"count":          {String: to.StringPtr(input.Count)},
+				// Provided as part of the deployment
+				"storageAccountName":              {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_NAME"))},
+				"storageAccountResourceGroupName": {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_GROUP"))},
+			},
+			Op: model.StartOpReqOp{
+				Ref: os.Getenv("OPERATIONS_PKG_PATH") + "/scale-node-pool",
+			},
+		})
+	if err != nil {
+		return ScaleNodePoolOutput{}, fmt.Errorf("failed to start scale-node-pool op: %v", err)
+	}
+
+	return ScaleNodePoolOutput{
+		OpId: opId,
+	}, nil
+}

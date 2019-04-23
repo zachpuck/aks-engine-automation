@@ -97,3 +97,15 @@ type RemoveNodePoolGroupInput struct {
 type RemoveNodePoolGroupOutput struct {
 	OpId string
 }
+
+type ScaleNodePoolInput struct {
+	Credentials  azurev1beta1.AzureCredentials
+	Location     string
+	ClusterName  string
+	NodePoolName string
+	Count        string
+}
+
+type ScaleNodePoolOutput struct {
+	OpId string
+}

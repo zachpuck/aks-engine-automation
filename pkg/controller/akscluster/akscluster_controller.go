@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"strconv"
 	"time"
 
 	opctlmodel "github.com/opctl/sdk-golang/model"
@@ -304,15 +305,11 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 
 		matchPattern := regexp.MustCompile("^[a-zA-Z0-9]*$")
 		if !matchPattern.MatchString(createClusterResult.OpId) {
+			clusterInstance.Status.Phase = ClusterPhaseError
 
-			statusUpdate := ClusterInstanceUpdates{
-				Name:      clusterInstance.Name,
-				Namespace: clusterInstance.Namespace,
-				Phase:     ClusterPhaseError,
-			}
-			err = r.updateClusterInstance(statusUpdate)
+			err = r.updateStatus(clusterInstance)
 			if err != nil {
-				return reconcile.Result{}, fmt.Errorf("failed to update cluster status: %v", err)
+				return reconcile.Result{}, err
 			}
 
 			return reconcile.Result{}, fmt.Errorf(
@@ -326,6 +323,12 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		clusterInstance.Status.Phase = ClusterPhasePending
 		clusterInstance.Status.KubernetesVersion = azurev1beta1.ClusterKubernetesVersion(clusterInstance.Spec.KubernetesVersion)
 		clusterInstance.ObjectMeta.Annotations["createClusterOpId"] = createClusterResult.OpId
+
+		// add agent pool node count annotations
+		for i := range clusterInstance.Spec.AgentPoolProfiles {
+			clusterInstance.ObjectMeta.Annotations[clusterInstance.Spec.AgentPoolProfiles[i].Name] =
+				strconv.Itoa(clusterInstance.Spec.AgentPoolProfiles[i].Count)
+		}
 
 		err = r.updateStatus(clusterInstance)
 		if err != nil {
@@ -350,8 +353,22 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 				return reconcile.Result{}, err
 			}
 		}
+		// Scaling node pool(s)
+		for i := range clusterInstance.Spec.AgentPoolProfiles {
+			if clusterInstance.ObjectMeta.Annotations[clusterInstance.Spec.AgentPoolProfiles[i].Name] !=
+				strconv.Itoa(clusterInstance.Spec.AgentPoolProfiles[i].Count) {
+
+				err = r.scaleNodePool(clusterInstance,
+					clusterInstance.Spec.AgentPoolProfiles[i].Name,
+					clusterInstance.Spec.AgentPoolProfiles[i].Count,
+				)
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+			}
+		}
+
 		// TODO:
-		// Scaling
 		// Resizing node pool
 		// Resizing VMs
 		// Upgrading Kubernetes
@@ -668,5 +685,73 @@ func (r *ReconcileAksCluster) updateNodePools(clusterInstance *azurev1beta1.AksC
 	}
 
 	log.Info("No changes to node pools for", "Cluster", clusterInstance.Name)
+	return nil
+}
+
+// scaleNodePool is used to increase the number of instances of a worker node pool up or down
+func (r *ReconcileAksCluster) scaleNodePool(clusterInstance *azurev1beta1.AksCluster, nodePoolName string, count int) error {
+	// get azure credentials
+	azureCreds, err := r.getCredentials(clusterInstance)
+	if err != nil {
+		return err
+	}
+
+	// create a new opctl
+	opctl := opctlutil.New(OpctlHostname)
+
+	scaleResults, err := opctl.ScaleNodePool(opctlutil.ScaleNodePoolInput{
+		Credentials:  azureCreds,
+		Location:     clusterInstance.Spec.Location,
+		ClusterName:  clusterInstance.Name,
+		NodePoolName: nodePoolName,
+		Count:        strconv.Itoa(count),
+	})
+	if err != nil {
+		return fmt.Errorf(
+			"failed to scale node pool for cluster %v and node pool name %v: %v",
+			clusterInstance.Name,
+			nodePoolName,
+			err,
+		)
+	}
+	log.Info("Scaling",
+		"Node Pool", nodePoolName,
+		"Cluster", clusterInstance.Name,
+		"Operation Id", scaleResults.OpId,
+	)
+	matchPattern := regexp.MustCompile("^[a-zA-Z0-9]*$")
+	if !matchPattern.MatchString(scaleResults.OpId) {
+		clusterInstance.Status.Phase = ClusterPhaseError
+
+		err = r.updateStatus(clusterInstance)
+		if err != nil {
+			return err
+		}
+
+		return fmt.Errorf(
+			"failed to start operation for cluster -->%v<-- with message: %v",
+			clusterInstance.Name, scaleResults.OpId,
+		)
+	}
+
+	// update cluster status
+	clusterInstance.Status.Phase = ClusterPhasePending
+	clusterInstance.ObjectMeta.Annotations[nodePoolName] = strconv.Itoa(count)
+	err = r.updateStatus(clusterInstance)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to update cluster %v status when scaling node pool %v: %v",
+			clusterInstance.Name, nodePoolName, err,
+		)
+	}
+
+	// track operation result
+	go r.ResolveOperation(ResolveOperationInput{
+		Name:      clusterInstance.Name,
+		Namespace: clusterInstance.Namespace,
+		OpId:      scaleResults.OpId,
+		StartTime: time.Now().UTC(),
+	})
+
 	return nil
 }

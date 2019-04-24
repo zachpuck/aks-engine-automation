@@ -245,11 +245,17 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 		// multiple agent node pools
 		var newAgentPoolProfiles []opctlutil.AgentPoolProfiles
 		for i := range clusterInstance.Spec.AgentPoolProfiles {
-			newAgentPoolProfiles = append(newAgentPoolProfiles, opctlutil.AgentPoolProfiles{
+
+			newAgentPool := opctlutil.AgentPoolProfiles{
 				Name:   clusterInstance.Spec.AgentPoolProfiles[i].Name,
 				Count:  clusterInstance.Spec.AgentPoolProfiles[i].Count,
 				VMSize: clusterInstance.Spec.AgentPoolProfiles[i].VmSize,
-			})
+			}
+			if clusterInstance.Spec.AgentPoolProfiles[i].EnableVMSSNodePublicIP {
+				newAgentPool.EnableVMSSNodePublicIP = true
+				newAgentPool.AvailabilityProfile = "VirtualMachineScaleSets"
+			}
+			newAgentPoolProfiles = append(newAgentPoolProfiles, newAgentPool)
 		}
 
 		// check if kubernetes version includes minor release

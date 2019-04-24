@@ -35,6 +35,8 @@ spec:
                   count:
                     format: int64
                     type: integer
+                  enableVMSSNodePublicIP:
+                    type: boolean
                   name:
                     type: string
                   vmSize:

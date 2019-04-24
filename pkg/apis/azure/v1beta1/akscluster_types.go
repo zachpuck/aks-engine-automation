@@ -62,9 +62,10 @@ type MasterProfileConfig struct {
 
 // AgentPoolProfileConfig defines the resource configuration for an agent nodes pool
 type AgentPoolProfileConfig struct {
-	Name   string `json:"name,omitempty"`
-	Count  int    `json:"count,omitempty"`
-	VmSize string `json:"vmSize,omitempty"`
+	Name                   string `json:"name,omitempty"`
+	Count                  int    `json:"count,omitempty"`
+	VmSize                 string `json:"vmSize,omitempty"`
+	EnableVMSSNodePublicIP bool   `json:"enableVMSSNodePublicIP,omitempty"`
 }
 
 type ClusterStatusPhase string

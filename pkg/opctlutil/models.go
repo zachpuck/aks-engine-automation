@@ -21,9 +21,11 @@ type MasterProfile struct {
 	VMSize    string `json:"vmSize"`
 }
 type AgentPoolProfiles struct {
-	Name   string `json:"name"`
-	Count  int    `json:"count"`
-	VMSize string `json:"vmSize"`
+	Name                   string `json:"name"`
+	Count                  int    `json:"count"`
+	VMSize                 string `json:"vmSize"`
+	EnableVMSSNodePublicIP bool   `json:"enableVMSSNodePublicIP"`
+	AvailabilityProfile    string `json:"availabilityProfile"`
 }
 type PublicKeys struct {
 	KeyData string `json:"keyData"`

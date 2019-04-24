@@ -50,6 +50,7 @@ This will build
 
 Requirements:
 1. [minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/)
+1. [opctl](https://opctl.io/docs/getting-started/opctl.html)
 
  Steps:
 1. `minikube start`
@@ -57,10 +58,13 @@ Requirements:
 1. `make run`
 
 In as separate terminal: 
-1. update sample CR with your azure credentials: ./config/samples/azure_v1beta1_akscluster.yaml
+1. Update sample CR with your azure credentials: ./config/samples/azure_v1beta1_akscluster.yaml
 1. `kubectl apply -f ./config/samples/azure_v1beta1_akscluster.yaml`
+1. View the opctl event stream by navigating to http://localhost:42224/#/events
 
 You can now see the created resource by typing `kubectl get akcluster`
+
+
 
 **Features needed**:
 1. scaling

@@ -191,6 +191,14 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 
 	// Create cluster
 	if clusterInstance.Status.Phase == ClusterPhaseNone {
+
+		// update Akscluster status to pending
+		clusterInstance.Status.Phase = ClusterPhasePending
+		err = r.updateStatus(clusterInstance)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
 		// confirm credentials secret before create cluster
 		secretResults, err := k8sutil.GetSecret(r.Client, clusterInstance.Spec.Credentials, clusterInstance.Namespace)
 		if err != nil {
@@ -320,7 +328,6 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 
 		// update cluster status and annotations
 		clusterInstance.Status.NodePoolCount = len(clusterInstance.Spec.AgentPoolProfiles)
-		clusterInstance.Status.Phase = ClusterPhasePending
 		clusterInstance.Status.KubernetesVersion = azurev1beta1.ClusterKubernetesVersion(clusterInstance.Spec.KubernetesVersion)
 		clusterInstance.ObjectMeta.Annotations["createClusterOpId"] = createClusterResult.OpId
 

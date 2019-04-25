@@ -111,3 +111,14 @@ type ScaleNodePoolInput struct {
 type ScaleNodePoolOutput struct {
 	OpId string
 }
+
+type UpgradeClusterInput struct {
+	Credentials    azurev1beta1.AzureCredentials
+	Location       string
+	ClusterName    string
+	UpgradeVersion string
+}
+
+type UpgradeClusterOutput struct {
+	OpId string
+}

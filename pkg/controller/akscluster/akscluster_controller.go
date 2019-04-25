@@ -380,12 +380,18 @@ func (r *ReconcileAksCluster) Reconcile(request reconcile.Request) (reconcile.Re
 				}
 			}
 		}
-
+		// Upgrading Kubernetes
+		if azurev1beta1.ClusterKubernetesVersion(clusterInstance.Spec.KubernetesVersion) != clusterInstance.Status.KubernetesVersion {
+			// check if this is a supported upgrade version
+			fmt.Println("upgrade cluster")
+			err = r.upgradeCluster(clusterInstance)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+		}
 		// TODO:
 		// Resizing node pool
 		// Resizing VMs
-		// Upgrading Kubernetes
-
 	}
 
 	return reconcile.Result{}, nil
@@ -763,6 +769,76 @@ func (r *ReconcileAksCluster) scaleNodePool(clusterInstance *azurev1beta1.AksClu
 		Name:      clusterInstance.Name,
 		Namespace: clusterInstance.Namespace,
 		OpId:      scaleResults.OpId,
+		StartTime: time.Now().UTC(),
+	})
+
+	return nil
+}
+
+// upgradeCluster will upgrade the kubernetes cluster version
+func (r *ReconcileAksCluster) upgradeCluster(clusterInstance *azurev1beta1.AksCluster) error {
+	// get azure credentials
+	azureCreds, err := r.getCredentials(clusterInstance)
+	if err != nil {
+		return err
+	}
+
+	// create a new opctl
+	opctl := opctlutil.New(OpctlHostname)
+
+	upgradeResults, err := opctl.UpgradeCluster(opctlutil.UpgradeClusterInput{
+		Credentials:    azureCreds,
+		Location:       clusterInstance.Spec.Location,
+		ClusterName:    clusterInstance.Name,
+		UpgradeVersion: clusterInstance.Spec.KubernetesVersion,
+	})
+	if err != nil {
+		return fmt.Errorf(
+			"failed to upgrading cluster -->%v<-- to kubernetes version -->%v<--: %v",
+			clusterInstance.Name,
+			clusterInstance.Spec.KubernetesVersion,
+			err,
+		)
+	}
+	// verify operation started successfully
+	matchPattern := regexp.MustCompile("^[a-zA-Z0-9]*$")
+	if !matchPattern.MatchString(upgradeResults.OpId) {
+		clusterInstance.Status.Phase = ClusterPhaseError
+
+		err = r.updateStatus(clusterInstance)
+		if err != nil {
+			return err
+		}
+
+		return fmt.Errorf(
+			"failed to start upgrade operation for cluster -->%v<-- with message: %v",
+			clusterInstance.Name, upgradeResults.OpId,
+		)
+	}
+	log.Info("Upgrading",
+		"Cluster", clusterInstance.Name,
+		"Kubernetes Version", clusterInstance.Spec.KubernetesVersion,
+		"Operation Id", upgradeResults.OpId,
+	)
+
+	// update cluster status
+	clusterInstance.Status.Phase = ClusterPhasePending
+	clusterInstance.Status.KubernetesVersion = azurev1beta1.ClusterKubernetesVersion(clusterInstance.Spec.KubernetesVersion)
+	err = r.updateStatus(clusterInstance)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to update cluster -->%v<-- status when upgrading kubernetes to version -->%v<--: %v",
+			clusterInstance.Name,
+			clusterInstance.Spec.KubernetesVersion,
+			err,
+		)
+	}
+
+	// track operation result
+	go r.ResolveOperation(ResolveOperationInput{
+		Name:      clusterInstance.Name,
+		Namespace: clusterInstance.Namespace,
+		OpId:      upgradeResults.OpId,
 		StartTime: time.Now().UTC(),
 	})
 

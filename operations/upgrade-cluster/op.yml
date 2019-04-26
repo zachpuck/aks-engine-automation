@@ -1,0 +1,102 @@
+name: upgrade-cluster
+description: upgrade an existing aks-engine kubernetes cluster
+inputs:
+  # Inputs for logging into azure in the correct region
+  subscriptionId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of azure subscription
+  loginId:
+    string:
+      constraints: { minLength: 1 }
+      description: id of user, service principal, or app to login with
+  loginSecret:
+    string:
+      constraints: { minLength: 1 }
+      description: secret of user, service principal, or app to login with
+      isSecret: true
+  loginTenantId:
+    string:
+      constraints: { minLength: 1 }
+      description: tenant id of user, service principal, or app to login with
+      default: " "
+  loginType:
+    string:
+      constraints: { enum: [user, sp]}
+      description: type of login; 'user' (default) or 'sp' for service principal
+      default: sp
+  location:
+    string:
+      constraints: { minLength: 1 }
+      description: location of the resources
+  # Cluster specific inputs
+  clusterName:
+    string:
+      constraints: { minLength: 1 }
+      description: the name of the cluster
+  upgradeVersion:
+    string:
+      constraints: { minLength: 1 }
+      description: kubernetes version to upgrade cluster to.
+  # Aks-engine application specific
+  storageAccountName:
+    string:
+      constraints: { minLength: 1 }
+      description: name of storage account used to save ARM resourece Templates
+  storageAccountResourceGroupName:
+    string:
+      constraints: { minLength: 1 }
+      description: resource group where storage account exists
+run:
+  serial:
+    # Get storage account key
+    - op:
+        ref: github.com/opspec-pkgs/azure.storage.account.key.get#2.1.0
+        inputs:
+          loginId:
+          loginSecret:
+          resourceGroup: $(storageAccountResourceGroupName)
+          storageAccount: $(storageAccountName)
+          subscriptionId:
+          loginTenantId:
+          loginType:
+        outputs:
+          value:
+    # Get apimodel.json from storage account
+    - container:
+        image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+        cmd:
+          - sh
+          - -ce
+          - |
+            echo "downloading aks-engine templates"
+            az storage blob download-batch \
+              --destination . \
+              --source $(clusterName) \
+              --account-key $(value) \
+              --account-name $(storageAccountName) > /dev/null
+        envVars:
+          clusterName:
+          storageAccountName: $(storageAccountName)
+          storageAccountKey: $(value)
+        dirs:
+          /templates: $(templates)
+        workDir: /templates
+    # upgrade cluster
+    - container:
+        image: { ref: 'azuresdk/azure-cli-python:rc2.0.52' }
+        cmd: [ /cmd.sh ]
+        envVars:
+          storageAccountName: $(storageAccountName)
+          storageAccountKey: $(value)
+          subscriptionId:
+          loginId:
+          loginSecret:
+          location:
+          resourceGroup: $(clusterName)-group
+          clusterName:
+          upgradeVersion:
+        files:
+          /cmd.sh:
+        dirs:
+          /templates: $(templates)

@@ -312,3 +312,33 @@ func (o *OPCTL) ScaleNodePool(input ScaleNodePoolInput) (ScaleNodePoolOutput, er
 		OpId: opId,
 	}, nil
 }
+
+// UpgradeCluster upgrade the kubernetes cluster to a later version of kubernetes
+func (o *OPCTL) UpgradeCluster(input UpgradeClusterInput) (UpgradeClusterOutput, error) {
+	opId, err := o.Client.StartOp(
+		context.Background(),
+		model.StartOpReq{
+			Args: map[string]*model.Value{
+				"subscriptionId": {String: to.StringPtr(input.Credentials.SubscriptionId)},
+				"loginId":        {String: to.StringPtr(input.Credentials.LoginId)},
+				"loginSecret":    {String: to.StringPtr(input.Credentials.LoginSecret)},
+				"loginTenantId":  {String: to.StringPtr(input.Credentials.TenantId)},
+				"location":       {String: to.StringPtr(input.Location)},
+				"clusterName":    {String: to.StringPtr(input.ClusterName)},
+				"upgradeVersion": {String: to.StringPtr(input.UpgradeVersion)},
+				// Provided as part of the deployment
+				"storageAccountName":              {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_NAME"))},
+				"storageAccountResourceGroupName": {String: to.StringPtr(os.Getenv("AKS_ENGINE_STORAGE_ACCOUNT_GROUP"))},
+			},
+			Op: model.StartOpReqOp{
+				Ref: os.Getenv("OPERATIONS_PKG_PATH") + "/upgrade-cluster",
+			},
+		})
+	if err != nil {
+		return UpgradeClusterOutput{}, fmt.Errorf("failed to start upgrade-cluster op: %v", err)
+	}
+
+	return UpgradeClusterOutput{
+		OpId: opId,
+	}, nil
+}

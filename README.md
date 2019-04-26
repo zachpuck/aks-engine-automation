@@ -1,3 +1,6 @@
+[![Build Status](https://travis-ci.org/zachpuck/aks-engine-automation.svg?branch=master)](https://travis-ci.org/zachpuck/aks-engine-automation)
+[![Coverage](https://codecov.io/gh/zachpuck/aks-engine-automation/branch/master/graph/badge.svg)](https://codecov.io/gh/zachpuck/aks-engine-automation)
+
 # AKS engine automation
 
 A Kubernetes operator used to provision Kubernetes clusters in azure utilizing [aks-engine](https://github.com/Azure/aks-engine)

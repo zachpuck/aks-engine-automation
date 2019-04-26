@@ -55,6 +55,10 @@ Requirements:
  Steps:
 1. `minikube start`
 1. `make install`
+1. Set environment variables:
+    - `export AKS_ENGINE_STORAGE_ACCOUNT_NAME=<name of azure storage account>` (see Prerequisites)
+    - `export AKS_ENGINE_STORAGE_ACCOUNT_GROUP=<name of azure storage account resource group>`
+    - `export OPERATIONS_PKG_PATH= <local file path to this repos operations folder>` ex: $GOPATH/src/github.com/zachpuck/aks-engine-automation/operations
 1. `make run`
 
 In as separate terminal: 

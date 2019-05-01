@@ -39,6 +39,8 @@ spec:
                   count:
                     format: int64
                     type: integer
+                  enableVMSSNodePublicIP:
+                    type: boolean
                   name:
                     type: string
                   vmSize:
@@ -46,18 +48,9 @@ spec:
                 type: object
               type: array
             credentials:
-              description: Credentials used to access the azure environment (must
-                have access to blob storageaccount)
-              properties:
-                loginId:
-                  type: string
-                loginSecret:
-                  type: string
-                subscriptionId:
-                  type: string
-                tenantId:
-                  type: string
-              type: object
+              description: Credentials references a secret used to access the azure
+                environment (must have access to blob storageaccount)
+              type: string
             kubernetesVersion:
               description: Kubernetes version
               type: string
@@ -76,11 +69,18 @@ spec:
                   type: string
               type: object
           required:
-          - kubernetesVersion
-          - masterProfile
+            - kubernetesVersion
+            - masterProfile
           type: object
         status:
           properties:
+            kubernetesVersion:
+              description: Cluster kubernetes version
+              type: string
+            nodePoolCount:
+              description: Current number of node pools
+              format: int64
+              type: integer
             phase:
               description: Cluster status
               type: string

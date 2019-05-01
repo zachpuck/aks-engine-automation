@@ -22,9 +22,9 @@ This storage account must be in the same subscription as the Kubernetes clusters
 
 Installing the Operator:
 ```yaml
-helm install deployments/helm/aks-engine-automation 
-  --name AksOperator 
-  --set storageAccount.name="aksoperatorstorage01" 
+helm install deployments/helm/aks-engine-automation \
+  --name aks-operator \
+  --set storageAccount.name="aksoperatorstorage01" \
   --set storageAccount.group="aks-operator-group"
 ```
 
@@ -71,11 +71,15 @@ In as separate terminal:
 
 You can now see the created resource by typing `kubectl get akcluster`
 
+**Features**:
+1. create cluster
+1. delete cluster
+1. upgrade cluster kubernetes version
+1. multiple worker node pools
+1. enable public ip access on nodes
+1. add/delete node (scaling)
 
-
-**Features needed**:
-1. scaling
-1. upgrade kubernetes version
+**not yet implemented**:
 1. custom vnets
 1. availability zones
 1. Virtual machine scale set for masters

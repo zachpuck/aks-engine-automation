@@ -38,3 +38,10 @@ run:
           imageName: 'zachpuck/aks-engine-opctl:$(commit)'
           username: $(DOCKERHUB_USERNAME)
           password: $(DOCKERHUB_PASSWORD)
+    - op:
+        pkg: { ref: github.com/opspec-pkgs/docker.image.push#2.1.0 }
+        inputs:
+          imageTar:
+          imageName: 'zachpuck/aks-engine-opctl:latest'
+          username: $(DOCKERHUB_USERNAME)
+          password: $(DOCKERHUB_PASSWORD)
